@@ -1,0 +1,14 @@
+{
+  "name": "starpulse-board",
+  "owner": {
+    "name": "trantor-org"
+  },
+  "description": "StarPulse's Claude Code board band.",
+  "plugins": [
+    {
+      "name": "starpulse-board",
+      "source": "./",
+      "description": "Shows the Board tasks this Claude Code session holds above the prompt, and /board to list them."
+    }
+  ]
+}
