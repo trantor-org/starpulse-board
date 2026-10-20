@@ -8,8 +8,6 @@ import type { Board, Run } from './starpulse'
 
 const PANE = 'starpulse-board'
 const KANBAN = 'starpulse-kanban'
-// The Sessions mod's pane, which this one leaves alone when it reopens the Board over a pane another plugin opened.
-const SESSIONS = 'starpulse-sessions'
 
 const tasks = atom({ plugin: 'starpulse-board', key: 'tasks' } as const, null)
 const isHidden = atom({ plugin: 'starpulse-board', key: 'isHidden' } as const, false)
@@ -261,7 +259,7 @@ export const register: Register = (on, options) => {
   // Until the first prompt, the first pane another plugin opens would take the dock's shown tab: reopen the Board over it, once.
   on('ui.open', async ($, e, next) => {
     const result = await next(e)
-    if (isStarting && hasOpened && e.id !== SESSIONS && e.id !== PANE && e.id !== KANBAN) {
+    if (isStarting && hasOpened && e.id !== PANE && e.id !== KANBAN) {
       isStarting = false
       // Opening an open pane only retitles it: close it first so the open lands as the newest tab.
       $.clock.after(0, async () => {

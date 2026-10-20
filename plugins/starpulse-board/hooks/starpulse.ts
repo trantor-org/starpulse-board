@@ -1,8 +1,6 @@
 import type { EngineInterface as Engine } from 'claude-code'
 import type { BoardTask, Checks, HeldTask, Lane, Pull } from '../types'
 
-// Shared by the Board and Sessions mods, which install apart, so each ships its own copy of this file: keep them identical.
-
 // A task as `starpulse board` prints it. An older starpulse leaves out the criteria, the reason and each PR's checks.
 export type RawTask = {
   id: string

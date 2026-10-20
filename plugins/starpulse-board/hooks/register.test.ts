@@ -393,13 +393,6 @@ test('the pane shows the first held task when none was picked', async ($, on) =>
 
 // Registered sessions besides the key files beside them: this one, one in tmux session task-7, an interactive one in no
 // tmux pane (a desktop app session), and a background one in no tmux pane.
-const REGISTRY: Record<string, object> = {
-  '/home/me/.claude/sessions/100.json': { sessionId: SESSION, pid: 100, name: 'me', status: 'busy' },
-  '/home/me/.claude/sessions/200.json': { sessionId: 'session-2', pid: 200, name: 'trantor-2', status: 'busy' },
-  '/home/me/.claude/sessions/300.json': { sessionId: 'session-3', pid: 300, name: 'Fix the gate', status: 'idle', kind: 'interactive' },
-  '/home/me/.claude/sessions/400.json': { sessionId: 'abcd1234-5678', pid: 400, name: 'Check the alert', status: 'idle', kind: 'bg' },
-}
-
 // Stands in for another dock plugin (filetree): a second plugin that opens its own pane a second into the session, then one more.
 const FILES = {
   name: 'files',
@@ -471,24 +464,19 @@ type Host = {
   held?: Feed[]
   lanes?: Feed[]
   afters?: number[]
-  watch?: Feed
-  registry?: Record<string, object>
   hasClock?: boolean
   noFrame?: boolean
   frame?: string
-  isAlone?: boolean
   board?: () => Promise<ReturnType<typeof answer>> | ReturnType<typeof answer>
   posted?: string[][]
   post?: (argv: readonly string[]) => ReturnType<typeof answer>
   toasts?: string[]
-  titles?: string
 }
 
-// Stands in for the engine and the host: the registry above, tmux session task-7 holding pid 200, a held-task stream
-// that sends nothing until the test feeds it, and a sessions-folder watch likewise.
+// Stands in for the engine and the host: tmux, and held-task and lanes streams
+// that send nothing until the test feeds them.
 // A test that mocks the clock says so with hasClock, since mock.clock answers clock.every itself.
 const sessionsHost = (on: On, host: Host = {}) => {
-  const registry = () => host.registry ?? (host.isAlone ? {} : REGISTRY)
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as RenderElement)
   on('session.id', () => ({ value: SESSION }))
   on('session.start', ($, e) => e)
@@ -513,20 +501,8 @@ const sessionsHost = (on: On, host: Host = {}) => {
     host.opened?.push(`close ${e.id}`)
     return { value: undefined }
   })
-  on('fs.list', () => ({
-    value: [...Object.keys(registry()), '/home/me/.claude/sessions/200.abc.key'].map(p => ({
-      name: p.split('/').at(-1)!,
-      kind: 'file' as const,
-      size: 1,
-      mtimeMs: 0,
-      isLink: false,
-    })),
-  }))
-  on('fs.read', ($, e) => ({ value: JSON.stringify(registry()[e.path]) }))
   on('process.run', ($, e) => {
     host.ran?.push([...e.argv])
-    if (e.argv[0] === 'grep' && e.argv.includes('-H')) return answer(0, host.titles ?? '')
-    if (e.argv[0] === 'tmux' && e.argv[1] === 'list-panes') return answer(0, '200 task-7\n999 scratch\n')
     if (e.argv[0] === 'tmux') {
       host.switched?.push([...e.argv])
       return answer(0, '')
@@ -537,7 +513,6 @@ const sessionsHost = (on: On, host: Host = {}) => {
     }
     return host.board?.() ?? answer(0, JSON.stringify({ columns: [] }))
   })
-  const watch = host.watch ?? feed()
   if (host.afters) {
     // A wait that never ends, so a retry that is scheduled shows up in `afters` and does not run.
     on('clock.after', (_$, e) => {
@@ -548,7 +523,7 @@ const sessionsHost = (on: On, host: Host = {}) => {
   on('process.spawn', async function* ($, e, next) {
     host.spawned?.push([...e.argv])
     const isLanes = e.argv.at(-1)?.includes('/api/lanes')
-    const child = e.argv[0] === 'inotifywait' ? watch : ((isLanes ? host.lanes : host.held)?.shift() ?? feed())
+    const child = (isLanes ? host.lanes : host.held)?.shift() ?? feed()
     return yield* child.chunks(next.signal)
   })
 }
@@ -557,9 +532,6 @@ const start = async ($: any, surface: string) => {
   await $.session.start({ cwd: '/work', surface, isInteractive: true })
   await settle()
 }
-
-const sessionsPane = ($: any, surface: string, placement = 'dock') =>
-  $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, placement }, requestId: 'starpulse-sessions' })
 
 // The whole Board as `starpulse board` prints it: a Ready task, one In Progress held by session-2 (tmux session task-7),
 // and the New and Done columns the Board tab leaves out.
