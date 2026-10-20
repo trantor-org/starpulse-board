@@ -1023,3 +1023,12 @@ test('desktop Board tab: Details opens the card with a primary Start session and
   expect(posted.map(sent)).toEqual([{ task: 'TASK-10', to: 'in_progress' }])
   await ui.unmount()
 })
+
+test('a move StarPulse marks allowed: false draws no button; an allowed one does', async ($, on) => {
+  const ui = await openKanban($, on)
+
+  await ui.press({ key: 'task:TASK-7' })
+  expect(await ui.find({ key: 'move:TASK-7:review' })).toBeDefined()
+  expect(await ui.find({ key: 'move:TASK-7:ready' })).toBeUndefined()
+  await ui.unmount()
+})

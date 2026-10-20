@@ -78,7 +78,10 @@ export const openLanes = (board: Board | null): Lane[] => {
   const task = (t: RawTask, c: Board['columns'][number]): BoardTask => ({
     ...taskOf(t, c),
     assignee: t.assignee ?? '',
-    moves: Object.keys(t.moves ?? {}).map(to => ({ to, name: names.get(to) ?? to })),
+    // A move StarPulse marks `allowed: false` would only be refused, so it draws no button.
+    moves: Object.entries(t.moves ?? {})
+      .filter(([, m]) => (m as { allowed?: boolean } | null)?.allowed !== false)
+      .map(([to]) => ({ to, name: names.get(to) ?? to })),
   })
 
   return LANES.flatMap(state => columns.filter(c => c.state === state)).map(c => ({ state: c.state, name: c.name, tasks: c.tasks.map(t => task(t, c)) }))
