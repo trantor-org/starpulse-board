@@ -207,15 +207,15 @@ const noise = (a: number, b: number) => {
 // Motion stops under the system's reduced-motion setting; a lane that is not live, and a pass or fail check, never pulse.
 const style = (isLive: boolean) =>
   '<style>' +
-  // A drawing is an image the page's theme cannot reach: it follows the system scheme, darkening the light-on-dark inks.
-  `@media (prefers-color-scheme: light){[fill="${SP.ink}"]{fill:#1e293b}[fill="${SP.slate}"]{fill:#475569}[fill="${SP.muted}"]{fill:#64748b}[fill="${SP.okHi}"]{fill:#059669}[fill="${SP.failText}"]{fill:#be123c}[fill="${SP.ok}"]{fill:#059669}[fill="${SP.run}"]{fill:#b45309}[fill="${SP.agent}"]{fill:#6d28d9}[fill="${SP.ready}"]{fill:#2563eb}[fill="${SP.fail}"]{fill:#e11d48}}` +
   '.t0,.t1,.t2,.t3{animation:tw 2.4s ease-in-out infinite}.t1{animation-duration:2.9s;animation-delay:-.7s}.t2{animation-duration:2s;animation-delay:-1.3s}.t3{animation-duration:3.3s;animation-delay:-.4s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.35}}.live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}' +
   '@media (prefers-reduced-motion: reduce){.t0,.t1,.t2,.t3,.live{animation:none}}' +
   `${isLive ? '' : '.t0,.t1,.t2,.t3{animation:none}'}</style>`
 
+// A drawing is an image the page's theme cannot reach, and the system scheme need not be the app's, so every card carries its
+// own dark surface: its inks read the same on a light or a dark page.
 const card = (w: number, h: number, stroke: string = SP.slate, strokeOpacity = 0.13) =>
-  `<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="7" fill="${SP.slate}" fill-opacity=".07" stroke="${stroke}" stroke-opacity="${strokeOpacity}"/>`
+  `<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="7" fill="${SP.surface}" stroke="${stroke}" stroke-opacity="${strokeOpacity}"/>`
 
 const pill = (x: number, y: number, w: number, color: string, label: string, size = 11) =>
   `<rect x="${x}" y="${y}" width="${w}" height="18" rx="9" fill="${color}" fill-opacity=".14"/>` +
@@ -390,7 +390,7 @@ export const laneHeaderSvg = (name: string, color: string, count: number, isFold
   const H = 26
   const label = name.toUpperCase()
   const labelX = 40
-  const labelW = Math.ceil(width(label, 11.5, false, 600)) + label.length * 1.1
+  const labelW = Math.ceil(width(label, 11.5, false, 600)) + label.length * 2.2
   const countX = labelX + labelW + 8
   const countW = Math.ceil(width(String(count), 11, false, 500)) + 14
   const ruleX = countX + countW + 10

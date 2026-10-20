@@ -24,7 +24,7 @@ the event-stream follower and the Board types) exists in both: keep the two file
 At session start the Board tab opens in the dock without taking the keys. On the terminal it draws cells, with the
 `glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws Svg cards for each task and lane
 header, native buttons (Details, Expand/Collapse, Refresh, Start session, Move to ...), no icon font, no key hints, and
-the page's own background, with the card colours following the system's light or dark scheme.
+the page's own background (each card carries its own dark surface, so it reads on a light or a dark theme).
 
 ## Sessions mod
 
