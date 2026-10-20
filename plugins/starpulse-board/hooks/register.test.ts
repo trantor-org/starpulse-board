@@ -261,11 +261,11 @@ test('desktop row: one Svg carries the ID, title, bar, k/n, lane and PR, with al
   const svg = await drawn(ui)
 
   expect(svg?.alt).toBe('PROJ-1: In Progress, 2 of 4 criteria, PR #392 checks running')
-  for (const text of ['PROJ-1', 'Add the verbs', '2/4', 'In Progress', '#392', '#fbbf24', '#0c1322']) {
+  for (const text of ['PROJ-1', 'Add the verbs', '2/4', 'In Progress', '#392', '#fbbf24']) {
     expect(svg?.source, text).toContain(text)
   }
   expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
-  expect((await ui.find({ key: 'hide' }))?.props.label).toBe('✕')
+  expect((await ui.find({ key: 'hide' }))?.props.label).toBe('Hide')
 })
 
 test('desktop row: a Needs attention reason replaces the title; no checked data drops the bar', async ($, on) => {
@@ -393,13 +393,6 @@ test('the pane shows the first held task when none was picked', async ($, on) =>
 
 // Registered sessions besides the key files beside them: this one, one in tmux session task-7, an interactive one in no
 // tmux pane (a desktop app session), and a background one in no tmux pane.
-const REGISTRY: Record<string, object> = {
-  '/home/me/.claude/sessions/100.json': { sessionId: SESSION, pid: 100, name: 'me', status: 'busy' },
-  '/home/me/.claude/sessions/200.json': { sessionId: 'session-2', pid: 200, name: 'trantor-2', status: 'busy' },
-  '/home/me/.claude/sessions/300.json': { sessionId: 'session-3', pid: 300, name: 'Fix the gate', status: 'idle', kind: 'interactive' },
-  '/home/me/.claude/sessions/400.json': { sessionId: 'abcd1234-5678', pid: 400, name: 'Check the alert', status: 'idle', kind: 'bg' },
-}
-
 // Stands in for another dock plugin (filetree): a second plugin that opens its own pane a second into the session, then one more.
 const FILES = {
   name: 'files',
@@ -471,24 +464,19 @@ type Host = {
   held?: Feed[]
   lanes?: Feed[]
   afters?: number[]
-  watch?: Feed
-  registry?: Record<string, object>
   hasClock?: boolean
   noFrame?: boolean
   frame?: string
-  isAlone?: boolean
   board?: () => Promise<ReturnType<typeof answer>> | ReturnType<typeof answer>
   posted?: string[][]
   post?: (argv: readonly string[]) => ReturnType<typeof answer>
   toasts?: string[]
-  titles?: string
 }
 
-// Stands in for the engine and the host: the registry above, tmux session task-7 holding pid 200, a held-task stream
-// that sends nothing until the test feeds it, and a sessions-folder watch likewise.
+// Stands in for the engine and the host: tmux, and held-task and lanes streams
+// that send nothing until the test feeds them.
 // A test that mocks the clock says so with hasClock, since mock.clock answers clock.every itself.
 const sessionsHost = (on: On, host: Host = {}) => {
-  const registry = () => host.registry ?? (host.isAlone ? {} : REGISTRY)
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as RenderElement)
   on('session.id', () => ({ value: SESSION }))
   on('session.start', ($, e) => e)
@@ -513,20 +501,8 @@ const sessionsHost = (on: On, host: Host = {}) => {
     host.opened?.push(`close ${e.id}`)
     return { value: undefined }
   })
-  on('fs.list', () => ({
-    value: [...Object.keys(registry()), '/home/me/.claude/sessions/200.abc.key'].map(p => ({
-      name: p.split('/').at(-1)!,
-      kind: 'file' as const,
-      size: 1,
-      mtimeMs: 0,
-      isLink: false,
-    })),
-  }))
-  on('fs.read', ($, e) => ({ value: JSON.stringify(registry()[e.path]) }))
   on('process.run', ($, e) => {
     host.ran?.push([...e.argv])
-    if (e.argv[0] === 'grep' && e.argv.includes('-H')) return answer(0, host.titles ?? '')
-    if (e.argv[0] === 'tmux' && e.argv[1] === 'list-panes') return answer(0, '200 task-7\n999 scratch\n')
     if (e.argv[0] === 'tmux') {
       host.switched?.push([...e.argv])
       return answer(0, '')
@@ -537,7 +513,6 @@ const sessionsHost = (on: On, host: Host = {}) => {
     }
     return host.board?.() ?? answer(0, JSON.stringify({ columns: [] }))
   })
-  const watch = host.watch ?? feed()
   if (host.afters) {
     // A wait that never ends, so a retry that is scheduled shows up in `afters` and does not run.
     on('clock.after', (_$, e) => {
@@ -548,7 +523,7 @@ const sessionsHost = (on: On, host: Host = {}) => {
   on('process.spawn', async function* ($, e, next) {
     host.spawned?.push([...e.argv])
     const isLanes = e.argv.at(-1)?.includes('/api/lanes')
-    const child = e.argv[0] === 'inotifywait' ? watch : ((isLanes ? host.lanes : host.held)?.shift() ?? feed())
+    const child = (isLanes ? host.lanes : host.held)?.shift() ?? feed()
     return yield* child.chunks(next.signal)
   })
 }
@@ -557,9 +532,6 @@ const start = async ($: any, surface: string) => {
   await $.session.start({ cwd: '/work', surface, isInteractive: true })
   await settle()
 }
-
-const sessionsPane = ($: any, surface: string, placement = 'dock') =>
-  $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, placement }, requestId: 'starpulse-sessions' })
 
 // The whole Board as `starpulse board` prints it: a Ready task, one In Progress held by session-2 (tmux session task-7),
 // and the New and Done columns the Board tab leaves out.
@@ -573,18 +545,23 @@ const KANBAN = board([
   ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
 ])
 
-const kanbanPane = ($: any) =>
-  $.ui.mount({ plugin: 'starpulse-board', surface: 'terminal', component: 'Pane', props: { ...PANE_PROPS, placement: 'dock' }, requestId: 'starpulse-kanban' })
+// The Board with Ready open first, so a desktop test need not unfold it.
+const KANBAN_OPEN = board([
+  ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', assignee: '@agent-standard-medium', moves: { in_progress: { allowed: true }, waiting: { allowed: true } } })]],
+])
+
+const kanbanPane = ($: any, surface = 'terminal') =>
+  $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, placement: 'dock' }, requestId: 'starpulse-kanban' })
 
 // The Board tab, opened from /kanban the way a person would. Each test unmounts its drawing.
-const openKanban = async ($: any, on: On, host: Host = {}) => {
+const openKanban = async ($: any, on: On, host: Host = {}, surface = 'terminal') => {
   const stream = host.lanes?.[0] ?? feed()
   sessionsHost(on, { lanes: [stream], ...host })
-  await start($, 'terminal')
+  await start($, surface)
   await $.command.run({ ...RUN, command: 'kanban' })
   if (!host.noFrame) stream.lanes(host.frame ?? KANBAN)
   await settle()
-  return kanbanPane($)
+  return kanbanPane($, surface)
 }
 
 // The JSON body a curl call sends.
@@ -650,21 +627,6 @@ test('an In Progress task goes to its live session without starting one', async 
 
   expect(posted).toEqual([])
   expect(switched).toEqual([['tmux', 'switch-client', '-t', 'task-7']])
-  await ui.unmount()
-})
-
-test('an In Progress task held by a background session attaches it in a tmux session and switches to it', async ($, on) => {
-  const switched: string[][] = []
-  const held = board([['in_progress', 'In Progress', [task({ id: 'TASK-8', title: 'Background one', holder: 'abcd1234-5678' })]]])
-  const ui = await openKanban($, on, { switched, frame: held })
-
-  await ui.press({ key: 'task:TASK-8' })
-  await ui.press({ key: 'session:TASK-8' })
-
-  expect(switched).toEqual([
-    ['tmux', 'new-session', '-A', '-d', '-s', 'bg-abcd1234', 'claude', 'attach', 'abcd1234'],
-    ['tmux', 'switch-client', '-t', 'bg-abcd1234'],
-  ])
   await ui.unmount()
 })
 
@@ -767,167 +729,20 @@ test('a refused move shows the server\'s reason as a toast', async ($, on) => {
   await ui.unmount()
 })
 
-test('the band\'s Board button opens the Board tab with the keys', async ($, on) => {
-  const opened: string[] = []
-  sessionsHost(on, { opened })
-
-  const ui = await band($, 'terminal')
-  await start($, 'terminal')
-  await ui.press({ key: 'kanban' })
-
-  expect(opened.at(-1)).toBe('starpulse-kanban focus=true')
-  await ui.unmount()
-})
-
-test('a Sessions pane placed inline closes itself and draws nothing, as Files does', async ($, on) => {
-  const opened: string[] = []
-  sessionsHost(on, { opened })
-
-  await start($, 'terminal')
-  const ui = await sessionsPane($, 'terminal', 'inline')
-  await settle()
-
-  expect(await ui.find({ key: 'session:session-2' })).toBeUndefined()
-  expect(opened.at(-1)).toBe('close starpulse-sessions')
-})
-
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the band counts the other sessions on one line, with no button per session (${surface})`, async ($, on) => {
-    sessionsHost(on)
+  test(`the band's Board button opens the Board tab with the keys (${surface})`, async ($, on) => {
+    const opened: string[] = []
+    const stream = feed()
+    sessionsHost(on, { opened, held: [stream] })
 
     const ui = await band($, surface)
     await start($, surface)
+    stream.held(BOARD)
+    await settle()
+    await ui.press({ key: 'kanban' })
 
-    expect((await ui.find({ key: 'sessions' }))?.props.label).toBe('1 working · 2 idle')
-    expect(await ui.find({ key: 'session:session-2' })).toBeUndefined()
-  })
-
-  test(`a new session opens Sessions, then the Board over it, without taking the keys (${surface})`, async ($, on) => {
-    const opened: string[] = []
-    sessionsHost(on, { opened })
-
-    await start($, surface)
-
-    expect(opened).toEqual(['starpulse-sessions focus=false', 'starpulse-kanban focus=false'])
-  })
-
-  test(
-    `the first pane another plugin opens at start is reopened under the Board, once (${surface})`,
-    { plugins: [FILES] },
-    async ($, on) => {
-      const opened: string[] = []
-      const clock = mock.clock(on)
-      sessionsHost(on, { opened, hasClock: true })
-
-      await start($, surface)
-      await clock.advance(1000)
-
-      expect(opened).toEqual([
-        'starpulse-sessions focus=false',
-        'starpulse-kanban focus=false',
-        'filetree focus=false',
-        'other focus=false',
-        'close starpulse-kanban',
-        'starpulse-kanban focus=false',
-      ])
-    },
-  )
-
-  test(`a pane opened after the first prompt keeps the dock (${surface})`, { plugins: [FILES] }, async ($, on) => {
-    const opened: string[] = []
-    const clock = mock.clock(on)
-    sessionsHost(on, { opened, hasClock: true })
-    on('prompt.submit', ($, e) => e)
-
-    await start($, surface)
-    await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
-    await clock.advance(1000)
-
-    expect(opened).toEqual(['starpulse-sessions focus=false', 'starpulse-kanban focus=false', 'filetree focus=false', 'other focus=false'])
-  })
-
-  test(`a new session with no other session opens only the Board (${surface})`, async ($, on) => {
-    const opened: string[] = []
-    sessionsHost(on, { opened, isAlone: true })
-
-    await start($, surface)
-
-    expect(opened).toEqual(['starpulse-kanban focus=false'])
-  })
-
-  test(`pressing the count opens the Sessions pane with the keys (${surface})`, async ($, on) => {
-    const opened: string[] = []
-    sessionsHost(on, { opened })
-
-    const ui = await band($, surface)
-    await start($, surface)
-    await ui.press({ key: 'sessions' })
-
-    expect(opened.at(-1)).toBe('starpulse-sessions focus=true')
-  })
-
-  test(`the Sessions pane lists the sessions it can enter with their status, this one marked (${surface})`, async ($, on) => {
-    sessionsHost(on)
-
-    await start($, surface)
-    const ui = await sessionsPane($, surface)
-    const label = async (key: string) => (await ui.find({ key }))?.props.label as string
-
-    expect(await label('session:session-2')).toMatch(/^trantor-2, working, /)
-    expect(await label(`session:${SESSION}`)).toMatch(/^me, you, working, /)
-    expect(await ui.find({ key: 'session:abcd1234-5678' })).toBeUndefined()
-    expect(await ui.find({ key: 'session:session-3' })).toBeUndefined()
-  })
-
-  // Claude titles a session in its transcript: an ai-title it rewrites as the work goes, a custom-title on /rename.
-  test(`the Sessions pane names a session by its transcript's latest title, a rename first (${surface})`, async ($, on) => {
-    const transcript = '/home/me/.claude/projects/-work/session-2.jsonl'
-    const titles = [
-      `${transcript}:{"type":"ai-title","aiTitle":"Draft the plan","sessionId":"session-2"}`,
-      `${transcript}:{"type":"ai-title","aiTitle":"Fix the sessions pane","sessionId":"session-2"}`,
-      `/home/me/.claude/projects/-work/${SESSION}.jsonl:{"type":"custom-title","customTitle":"Mine","sessionId":"${SESSION}"}`,
-      `/home/me/.claude/projects/-work/${SESSION}.jsonl:{"type":"ai-title","aiTitle":"Later summary","sessionId":"${SESSION}"}`,
-    ].join('\n')
-    const registry = Object.fromEntries(Object.entries(REGISTRY).map(([path, s]) => [path, { ...s, cwd: '/work' }]))
-    sessionsHost(on, { registry, titles })
-
-    await start($, surface)
-    const ui = await sessionsPane($, surface)
-    const label = async (key: string) => (await ui.find({ key }))?.props.label as string
-
-    expect(await label('session:session-2')).toMatch(/^Fix the sessions pane, working, /)
-    expect(await label(`session:${SESSION}`)).toMatch(/^Mine, you, working, /)
-  })
-
-  test(`a narrow Sessions pane cuts a long name to its width (${surface})`, async ($, on) => {
-    const registry = { ...REGISTRY, '/home/me/.claude/sessions/200.json': { ...REGISTRY['/home/me/.claude/sessions/200.json'], name: 'Fix the sessions pane title truncation' } }
-    sessionsHost(on, { registry })
-
-    await start($, surface)
-    const ui = await $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, placement: 'dock', bodyColumns: 30 }, requestId: 'starpulse-sessions' })
-
-    expect(await ui.findAll({ type: 'Text', text: 'Fix the sessions p…' })).toHaveLength(1)
-  })
-
-  // The dock paints grey behind every cell a pane draws: the Sessions root takes the body's rows and fills them black, as the Board's does.
-  test(`the Sessions pane paints black down the whole dock body (${surface})`, async ($, on) => {
-    sessionsHost(on)
-
-    await start($, surface)
-    const ui = await sessionsPane($, surface)
-
-    expect((await ui.find({ key: 'sessions-fill' }))?.props).toMatchObject({ minHeight: PANE_PROPS.scroll.bodyRows, backgroundColor: '#000000' })
-  })
-
-  test(`pressing a session in tmux switches the tmux client to it (${surface})`, async ($, on) => {
-    const switched: string[][] = []
-    sessionsHost(on, { switched })
-
-    await start($, surface)
-    const ui = await sessionsPane($, surface)
-    await ui.press({ key: 'session:session-2' })
-
-    expect(switched).toEqual([['tmux', 'switch-client', '-t', 'task-7']])
+    expect(opened.at(-1)).toBe('starpulse-kanban focus=true')
+    await ui.unmount()
   })
 }
 
@@ -982,25 +797,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'details-PROJ-1' })).toBeUndefined()
   })
 
-  test(`a change in the sessions folder rereads the registry, and no timer runs (${surface})`, async ($, on) => {
-    const watch = feed()
-    const everys: number[] = []
-    const spawned: string[][] = []
-    const host: Host = { watch, everys, spawned, registry: {} }
-    sessionsHost(on, host)
-
-    const ui = await band($, surface)
-    await start($, surface)
-    const before = await ui.find({ key: 'sessions' })
-    host.registry = REGISTRY
-    watch.write('200.json\n')
-    await settle()
-
-    expect(before).toBeUndefined()
-    expect((await ui.find({ key: 'sessions' }))?.props.label).toBe('1 working · 2 idle')
-    expect(spawned.find(argv => argv[0] === 'inotifywait')?.at(-1)).toBe('/home/me/.claude/sessions')
-    expect(everys).toEqual([])
-  })
 }
 
 // The Nerd Font v3 icons the mod draws by default, and the plain characters `glyphs: plain` swaps in.
@@ -1097,7 +893,7 @@ test('a picked task opens its title, holder, criteria, PR and actions coloured b
   const first = (key: string) => (buttons.find((b: any) => b.key === key) as any)?.children[0]?.props.color
 
   expect(seen.filter(t => t.text === 'Busy one').length, 'row and detail').toBe(2)
-  expect(colorOf(seen, 'task-7'), 'holder').toBe('#94a3b8')
+  expect(colorOf(seen, 'session-2'), 'holder').toBe('#94a3b8')
   expect(colorOf(seen, '2/4 criteria')).toBe('#6b7a93')
   expect(colorOf(seen, `${NERD.pr} #392`)).toBe('#a78bfa')
   expect(colorOf(seen, 'checks running')).toBe('#fbbf24')
@@ -1153,4 +949,86 @@ test('the band draws no fill: every Button is plain and no element sets a backgr
   await settle()
 
   await fills(await band($, 'terminal'))
+})
+
+// The private-use range Nerd Font icons live in: a Desktop without the font draws each as a missing-glyph box.
+const NERD_ICON = /[\ue000-\uf8ff]/
+const everyText = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((el: any) => String(el.children.join('')))
+const everyButton = async (ui: any) => (await ui.findAll({ type: 'Button' })) as any[]
+
+test('desktop band: native buttons, drawings for the cards, no icon font, no bracketed text, no fill', async ($, on) => {
+  const stream = feed()
+  sessionsHost(on, { held: [stream] })
+
+  const ui = await band($, 'desktop')
+  await start($, 'desktop')
+  stream.held(BOARD)
+  await settle()
+
+  const buttons = await everyButton(ui)
+  expect(buttons.map(b => b.key).sort()).toEqual(['details-PROJ-1', 'details-PROJ-2', 'hide', 'kanban'])
+  expect(buttons.some(b => b.props.plain), 'native buttons, not plain text').toBe(false)
+  expect((await ui.findAll({ type: 'Svg' })).length, 'one card a task').toBe(2)
+  const seen = (await everyText(ui)).join('|')
+  expect(seen).not.toMatch(NERD_ICON)
+  expect(seen).not.toContain('[')
+  expect(seen).not.toContain('✕')
+  expect((await ui.findAll({})).some((el: any) => el.props.backgroundColor), 'no fill').toBe(false)
+  await ui.unmount()
+})
+
+test('desktop Board tab: lane headers and cards are drawings, buttons are native, no rules, hints, icon font or fill', async ($, on) => {
+  const ui = await openKanban($, on, {}, 'desktop')
+
+  const seen = (await everyText(ui)).join('|')
+  expect(seen).not.toMatch(NERD_ICON)
+  expect(seen).not.toContain('─')
+  expect(seen).not.toContain('move')
+  expect(seen).not.toContain('pick')
+  expect((await ui.findAll({})).some((el: any) => el.props.backgroundColor), 'the page behind shows through').toBe(false)
+  const buttons = await everyButton(ui)
+  expect(buttons.some(b => b.props.plain)).toBe(false)
+  expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['refresh', 'lane:in_progress', 'lane:ready', 'task:TASK-7']))
+  const svgs = await ui.findAll({ type: 'Svg' })
+  const alts = svgs.map((s: any) => s.props.alt)
+  expect(alts).toContain('In Progress, 1')
+  expect(alts.some((a: string) => a.startsWith('TASK-7: In Progress'))).toBe(true)
+  const header = svgs.find((s: any) => s.props.alt === 'In Progress, 1') as any
+  expect(header.props.source).toContain('IN PROGRESS')
+  expect(header.props.source, 'a real divider').toContain('<rect x=')
+  await ui.unmount()
+})
+
+test('desktop Board tab: Ready starts folded and its lane button unfolds it', async ($, on) => {
+  const ui = await openKanban($, on, {}, 'desktop')
+
+  expect(await ui.find({ key: 'task:TASK-10' }), 'Ready is folded').toBeUndefined()
+  expect((await ui.find({ key: 'lane:ready' }))?.props.label).toBe('Expand')
+  await ui.press({ key: 'lane:ready' })
+  expect((await ui.find({ key: 'task:TASK-10' }))?.props.label).toBe('Details')
+  await ui.unmount()
+})
+
+test('desktop Board tab: Details opens the card with a primary Start session and a Move button a lane, which post to StarPulse', async ($, on) => {
+  const posted: string[][] = []
+  const ui = await openKanban($, on, { posted, frame: KANBAN_OPEN }, 'desktop')
+
+  await ui.press({ key: 'lane:ready' })
+  await ui.press({ key: 'task:TASK-10' })
+  expect((await ui.find({ key: 'session:TASK-10' }))?.props.variant).toBe('primary')
+  expect((await ui.find({ key: 'move:TASK-10:in_progress' }))?.props.label).toBe('Move to In Progress')
+  expect((await ui.findAll({ type: 'Svg' })).some((s: any) => s.props.source.includes('Ready one'))).toBe(true)
+  await ui.press({ key: 'move:TASK-10:in_progress' })
+
+  expect(posted.map(sent)).toEqual([{ task: 'TASK-10', to: 'in_progress' }])
+  await ui.unmount()
+})
+
+test('a move StarPulse marks allowed: false draws no button; an allowed one does', async ($, on) => {
+  const ui = await openKanban($, on)
+
+  await ui.press({ key: 'task:TASK-7' })
+  expect(await ui.find({ key: 'move:TASK-7:review' })).toBeDefined()
+  expect(await ui.find({ key: 'move:TASK-7:ready' })).toBeUndefined()
+  await ui.unmount()
 })
