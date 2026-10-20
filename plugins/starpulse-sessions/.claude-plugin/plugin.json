@@ -1,21 +1,16 @@
 {
-  "name": "starpulse-board",
-  "version": "0.1.0",
-  "description": "Shows the Board tasks this Claude Code session holds and every other session's status above the prompt, switches to a session through tmux on a click, and /board to list held tasks",
+  "name": "starpulse-sessions",
+  "version": "0.2.0",
+  "description": "A Sessions tab in the Claude Code terminal dock: every session on the host, the Board task each holds, a click to switch to its tmux session, and archive and resume. Terminal and tmux only.",
   "types": "./types/index.d.ts",
-  "author": {
-    "name": "trantor-org"
-  },
+  "author": { "name": "trantor-org" },
   "userConfig": {
     "glyphs": {
       "type": "string",
       "title": "Glyphs",
       "description": "nerd draws Nerd Font v3 icons (needs a Nerd Font in the terminal); plain draws ordinary Unicode characters. A terminal cannot report its font, so set plain when icons show as boxes.",
       "default": "nerd",
-      "options": [
-        "nerd",
-        "plain"
-      ]
+      "options": ["nerd", "plain"]
     }
   }
 }

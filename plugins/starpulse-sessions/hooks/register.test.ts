@@ -122,7 +122,7 @@ const start = async ($: any, surface: string) => {
 
 // Starting the session lists the others and opens the pane, which reads the Board; then a surface draws it.
 const pane = async ($: any, surface: string, props: object = {}) =>
-  $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, ...props }, requestId: PANE })
+  $.ui.mount({ plugin: 'starpulse-sessions', surface, component: 'Pane', props: { ...PANE_PROPS, ...props }, requestId: PANE })
 
 // The keys of the buttons under `prefix`, in the order they are drawn.
 const keys = async (ui: any, prefix: string) =>
@@ -465,5 +465,25 @@ test('the pane draws no fill: its root is black and every Button is plain', { ti
   expect(buttons.length).toBeGreaterThan(5)
   for (const b of buttons) expect(b.props.plain, String(b.key)).toBe(true)
   expect((await ui.drawn()).props).toMatchObject({ backgroundColor: '#000000', minHeight: PANE_PROPS.scroll.bodyRows })
+  await ui.unmount()
+})
+
+const RUN = { command: 'sessions', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
+
+test('a session that runs beside others opens the Sessions pane without the keys, and /sessions opens it with them', { timeoutMs: SLOW }, async ($, on) => {
+  const seen = host(on)
+  await start($, 'terminal')
+  expect(seen.opened).toEqual([PANE])
+
+  await $.command.run(RUN)
+  expect(seen.opened).toEqual([PANE, PANE])
+})
+
+test('a Sessions pane placed inline closes itself and draws nothing, as Files does', { timeoutMs: SLOW }, async ($, on) => {
+  host(on)
+  await start($, 'terminal')
+  const ui = await pane($, 'terminal', { placement: 'inline' })
+
+  expect(await keys(ui, 'session:')).toEqual([])
   await ui.unmount()
 })

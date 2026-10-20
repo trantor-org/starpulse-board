@@ -1,0 +1,21 @@
+{
+  "name": "starpulse-board",
+  "version": "0.2.0",
+  "description": "Shows the Board tasks this Claude Code session holds above the prompt, a Board pane (/kanban) of every open lane, and /board to list held tasks. Terminal and Desktop.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "trantor-org"
+  },
+  "userConfig": {
+    "glyphs": {
+      "type": "string",
+      "title": "Glyphs",
+      "description": "nerd draws Nerd Font v3 icons in the terminal (needs a Nerd Font); plain draws ordinary Unicode characters. Desktop draws no font icons.",
+      "default": "nerd",
+      "options": [
+        "nerd",
+        "plain"
+      ]
+    }
+  }
+}

@@ -207,13 +207,15 @@ const noise = (a: number, b: number) => {
 // Motion stops under the system's reduced-motion setting; a lane that is not live, and a pass or fail check, never pulse.
 const style = (isLive: boolean) =>
   '<style>' +
+  // A drawing is an image the page's theme cannot reach: it follows the system scheme, darkening the light-on-dark inks.
+  `@media (prefers-color-scheme: light){[fill="${SP.ink}"]{fill:#1e293b}[fill="${SP.slate}"]{fill:#475569}[fill="${SP.muted}"]{fill:#64748b}[fill="${SP.okHi}"]{fill:#059669}[fill="${SP.failText}"]{fill:#be123c}[fill="${SP.ok}"]{fill:#059669}[fill="${SP.run}"]{fill:#b45309}[fill="${SP.agent}"]{fill:#6d28d9}[fill="${SP.ready}"]{fill:#2563eb}[fill="${SP.fail}"]{fill:#e11d48}}` +
   '.t0,.t1,.t2,.t3{animation:tw 2.4s ease-in-out infinite}.t1{animation-duration:2.9s;animation-delay:-.7s}.t2{animation-duration:2s;animation-delay:-1.3s}.t3{animation-duration:3.3s;animation-delay:-.4s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.35}}.live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}' +
   '@media (prefers-reduced-motion: reduce){.t0,.t1,.t2,.t3,.live{animation:none}}' +
   `${isLive ? '' : '.t0,.t1,.t2,.t3{animation:none}'}</style>`
 
-const card = (w: number, h: number) =>
-  `<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="7" fill="${SP.surface}" stroke="${SP.slate}" stroke-opacity=".13"/>`
+const card = (w: number, h: number, stroke: string = SP.slate, strokeOpacity = 0.13) =>
+  `<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="7" fill="${SP.slate}" fill-opacity=".07" stroke="${stroke}" stroke-opacity="${strokeOpacity}"/>`
 
 const pill = (x: number, y: number, w: number, color: string, label: string, size = 11) =>
   `<rect x="${x}" y="${y}" width="${w}" height="18" rx="9" fill="${color}" fill-opacity=".14"/>` +
@@ -225,7 +227,7 @@ const pillWidth = (label: string) => Math.ceil(width(label, 11, false, 500)) + 2
 export const ROW_HEIGHT = 30
 
 /** The band's row as one StarPulse card: lane dot, ID, title or reason, AC bar, lane pill, PR and its checks. */
-export const rowSvg = (t: HeldTask, W: number) => {
+export const rowSvg = (t: HeldTask, W: number, isPicked = false) => {
   const PAD = 10
   const BAR_H = 12
   const CELL = 3
@@ -293,7 +295,7 @@ export const rowSvg = (t: HeldTask, W: number) => {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(isLive)}` +
     `<defs><clipPath id="c"><rect width="${barW}" height="${BAR_H}" rx="${BAR_H / 2}"/></clipPath><clipPath id="tc"><rect x="${left}" width="${titleMax}" height="${H}"/></clipPath><filter id="g" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="2"/></filter></defs>` +
-    card(W, H) +
+    card(W, H, isPicked ? color : SP.slate, isPicked ? 0.7 : 0.13) +
     `<circle cx="${PAD + 4}" cy="${mid}" r="4" fill="${color}" filter="url(#g)" opacity=".6"/>` +
     `<circle${pulse(isLive)} cx="${PAD + 4}" cy="${mid}" r="3.5" fill="${color}"/>` +
     `<text x="${PAD + 14}" y="${mid + 4}" font-family="${MONO}" font-size="11.5" fill="${SP.slate}">${xml(t.id)}</text>` +
@@ -380,5 +382,30 @@ export const paneSvg = (t: HeldTask, W: number) => {
   return {
     height: H,
     source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(false)}${card(W, H)}${parts.join('')}</svg>`,
+  }
+}
+
+/** A lane's header: fold chevron, status dot, name, count, and a rule that runs to the right edge. */
+export const laneHeaderSvg = (name: string, color: string, count: number, isFolded: boolean, W: number) => {
+  const H = 26
+  const label = name.toUpperCase()
+  const labelX = 40
+  const labelW = Math.ceil(width(label, 11.5, false, 600)) + label.length * 1.1
+  const countX = labelX + labelW + 8
+  const countW = Math.ceil(width(String(count), 11, false, 500)) + 14
+  const ruleX = countX + countW + 10
+  const chevron = isFolded ? 'M5 8l5 5-5 5' : 'M4 10l6 6 6-6'
+
+  return {
+    height: H,
+    source:
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(false)}` +
+      `<path d="${chevron}" transform="translate(2 -1)" stroke="${SP.slate}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` +
+      `<circle cx="28" cy="${H / 2}" r="4" fill="${color}"/>` +
+      `<text x="${labelX}" y="${H / 2 + 4}" font-family="${FONT}" font-size="11.5" font-weight="600" letter-spacing="1.1" fill="${color}">${xml(label)}</text>` +
+      `<rect x="${countX}" y="${H / 2 - 9}" width="${countW}" height="18" rx="9" fill="${SP.slate}" fill-opacity=".14"/>` +
+      `<text x="${countX + countW / 2}" y="${H / 2 + 4}" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="500" fill="${SP.slate}">${count}</text>` +
+      (ruleX < W ? `<rect x="${ruleX}" y="${H / 2}" width="${W - ruleX}" height="1" fill="${SP.slate}" fill-opacity=".2"/>` : '') +
+      '</svg>',
   }
 }

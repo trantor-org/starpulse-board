@@ -1,14 +1,32 @@
 # starpulse-board
 
-Draws the Board tasks a Claude Code session holds above the prompt, a Board pane (`/kanban`) and a Sessions pane.
-Install with `/plugin marketplace add trantor-org/starpulse-board` then `/plugin install starpulse-board@starpulse-board`;
-the StarPulse CLI reference (`docs/cli.md` in [trantor-org/starpulse](https://github.com/trantor-org/starpulse)) documents the
-band and the Board pane.
+Two Claude Code mods in one marketplace, installed independently:
 
-At session start the dock opens without taking the keys: Sessions when another session runs, then the Board, the tab on
-show.
+| Mod | What it draws | Surfaces |
+| --- | --- | --- |
+| `starpulse-board` | The Board tasks a session holds above the prompt, the Board pane (`/kanban`) of every open lane, a single-task pane, `/board` | terminal and Claude Desktop |
+| `starpulse-sessions` | The Sessions pane (`/sessions`): every session on the host, click to switch to its tmux session, archive and resume | terminal only (it needs tmux) |
 
-## Sessions pane
+```
+/plugin marketplace add trantor-org/starpulse-board
+/plugin install starpulse-board@starpulse-board
+/plugin install starpulse-sessions@starpulse-board
+```
+
+Claude Desktop enables only `starpulse-board`. The StarPulse CLI reference (`docs/cli.md` in
+[trantor-org/starpulse](https://github.com/trantor-org/starpulse)) documents the band and the Board pane.
+
+Each mod is a folder under `plugins/` and ships as a copy of itself, so `hooks/starpulse.ts` (the `starpulse board` reader,
+the event-stream follower and the Board types) exists in both: keep the two files identical.
+
+## Board mod
+
+At session start the Board tab opens in the dock without taking the keys. On the terminal it draws cells, with the
+`glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws Svg cards for each task and lane
+header, native buttons (Details, Expand/Collapse, Refresh, Start session, Move to ...), no icon font, no key hints, and
+the page's own background, with the card colours following the system's light or dark scheme.
+
+## Sessions mod
 
 Lists the Claude Code sessions in `~/.claude/sessions/` it can switch to in two groups, Active and Archived (Archived
 folded by default; each header folds). Active holds working and idle sessions together, told apart by the status icon
@@ -37,7 +55,7 @@ Options: `glyphs` is `nerd` (default) or `plain`.
 
 ## Black dock
 
-Both panes fill their body black. The dock's tab strip, left border and bottom row are Claude Code's
-`composerSidebarBackground` (grey in the dark theme), which no pane draws. The plugin ships the theme
+On the terminal both panes fill their body black. The dock's tab strip, left border and bottom row are Claude Code's
+`composerSidebarBackground` (grey in the dark theme), which no pane draws. The Board mod ships the theme
 `themes/black-dock.json`, the dark theme with that key black; select it with
 `"theme": "custom:starpulse-board:black-dock"` in `~/.claude/settings.json`.

@@ -3,12 +3,17 @@
   "owner": {
     "name": "trantor-org"
   },
-  "description": "StarPulse's Claude Code board band.",
+  "description": "StarPulse's Claude Code mods: the Board and the Sessions list.",
   "plugins": [
     {
       "name": "starpulse-board",
-      "source": "./",
-      "description": "Shows the Board tasks this Claude Code session holds above the prompt, and /board to list them."
+      "source": "./plugins/starpulse-board",
+      "description": "Shows the Board tasks this Claude Code session holds above the prompt, a Board pane of every open lane, and /board to list held tasks. Terminal and Desktop."
+    },
+    {
+      "name": "starpulse-sessions",
+      "source": "./plugins/starpulse-sessions",
+      "description": "A Sessions pane for the terminal dock: every session on the host with the task it holds, click to switch to its tmux session, archive and resume. Terminal and tmux only."
     }
   ]
 }

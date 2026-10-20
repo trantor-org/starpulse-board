@@ -58,14 +58,9 @@ export type Lane = { state: string; name: string; tasks: BoardTask[] }
 
 declare module 'claude-code' {
   interface PluginState {
-    'starpulse-board': {
-      tasks: HeldTask[] | null
+    'starpulse-sessions': {
       sessions: PeerSession[]
-      isHidden: boolean
-      openTask: string | null
       lanes: Lane[] | null
-      folded: string[]
-      pickedTask: string | null
       archived: ArchivedSession[]
       query: string
       chips: string[]
