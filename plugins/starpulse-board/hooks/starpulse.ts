@@ -11,7 +11,9 @@ export type RawTask = {
   waiting_on?: string[]
   criteria?: { text: string; checked?: boolean }[]
   pause_reason?: string
-  prs?: { url: string; number?: number; checks?: string; merged?: boolean }[]
+  phase?: string | null
+  substate?: string | null
+  prs?: { url: string; number?: number; checks?: string; merged?: boolean; threads?: number | null; behind_main?: number | null }[]
   done_at?: string
 }
 export type Board = { columns: { state: string; name: string; tasks: RawTask[] }[] }
@@ -29,7 +31,7 @@ export const pullOf = (prs: RawTask['prs']): Pull | null => {
     return null
   }
 
-  return { repo, number, checks: CHECK_NAMES[pr.checks ?? ''] ?? 'none' }
+  return { repo, number, checks: CHECK_NAMES[pr.checks ?? ''] ?? 'none', threads: pr.threads ?? null, behindMain: pr.behind_main ?? null }
 }
 
 export const taskOf = (t: RawTask, c: Board['columns'][number]): HeldTask => ({
@@ -42,6 +44,8 @@ export const taskOf = (t: RawTask, c: Board['columns'][number]): HeldTask => ({
   reason: t.pause_reason ?? '',
   waitingOn: t.waiting_on ?? [],
   pull: pullOf(t.prs),
+  phase: t.phase ?? '',
+  substate: t.substate ?? '',
 })
 
 export const heldOf = (board: Board): HeldTask[] => board.columns.flatMap(c => c.tasks.map(t => taskOf(t, c)))

@@ -1,0 +1,24 @@
+{
+  "name": "StarPulse navy",
+  "base": "dark",
+  "overrides": {
+    "composerSidebarBackground": "rgb(11,18,36)",
+    "userMessageBackground": "rgb(17,25,43)",
+    "userMessageBackgroundHover": "rgb(13,21,40)",
+    "bashMessageBackgroundColor": "rgb(12,19,34)",
+    "memoryBackgroundColor": "rgb(12,19,34)",
+    "selectionBg": "rgb(51,65,85)",
+    "text": "rgb(219,228,243)",
+    "inactive": "rgb(148,163,184)",
+    "subtle": "rgb(51,65,85)",
+    "promptBorder": "rgb(51,65,85)",
+    "promptBorderShimmer": "rgb(148,163,184)",
+    "suggestion": "rgb(96,165,250)",
+    "permission": "rgb(96,165,250)",
+    "claude": "rgb(167,139,250)",
+    "claudeShimmer": "rgb(196,181,253)",
+    "success": "rgb(52,211,153)",
+    "error": "rgb(251,113,133)",
+    "warning": "rgb(251,191,36)"
+  }
+}
