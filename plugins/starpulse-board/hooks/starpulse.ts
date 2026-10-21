@@ -37,7 +37,7 @@ export const taskOf = (t: RawTask, c: Board['columns'][number]): HeldTask => ({
   title: t.title,
   column: c.name,
   lane: c.state,
-  holder: t.holder ?? '',
+  holder: t.assignee ?? t.holder ?? '',
   criteria: t.criteria ?? null,
   reason: t.pause_reason ?? '',
   waitingOn: t.waiting_on ?? [],
@@ -55,7 +55,7 @@ export async function readBoard($: Engine, filters: string[]): Promise<Board | n
     const run = (argv0: string) => $.process.run([argv0, ...args]).catch(() => null)
     let ran = await run('starpulse')
     if (ran?.exitCode !== 0) {
-      // A virtualenv on PATH can hold a starpulse older than --holder; the user-wide install is current.
+      // A virtualenv on PATH can hold a starpulse older than --assignee; the user-wide install is current.
       ran = await run(`${await $.env.get('HOME')}/.local/bin/starpulse`)
     }
     if (ran?.exitCode !== 0) {

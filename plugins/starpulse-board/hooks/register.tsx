@@ -19,7 +19,7 @@ const pickedTask = atom({ plugin: 'starpulse-board', key: 'pickedTask' } as cons
 // The tasks this session last claimed, from the StarPulse server `starpulse board` reads; null when it cannot be read.
 const held = async ($: Engine): Promise<HeldTask[] | null> => {
   const session = await $.session.id().catch(() => null)
-  const board = session === null ? null : await readBoard($, ['--holder', session])
+  const board = session === null ? null : await readBoard($, ['--assignee', session])
 
   return board && heldOf(board)
 }
@@ -33,7 +33,7 @@ const reloadLanes = async ($: Engine) => {
 // The server sends this session's held tasks once and again whenever they change; nothing here asks it twice.
 const followHeld = async ($: Engine) => {
   const session = await $.session.id()
-  const { argv, input } = await streamOf($, `/api/held?holder=${encodeURIComponent(session)}`)
+  const { argv, input } = await streamOf($, `/api/held?assignee=${encodeURIComponent(session)}`)
   const onFrame = async (event: string, data: string) => {
     if (event === 'held') {
       await update($, tasks, () => heldOf(JSON.parse(data) as Board))

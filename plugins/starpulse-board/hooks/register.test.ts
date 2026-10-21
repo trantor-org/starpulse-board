@@ -4,9 +4,9 @@ import { expect, mock, test } from 'claude-code/testing'
 const PULL = 'https://github.com/trantor-org/starpulse/pull'
 const CRITERIA = [true, true, false, false].map((checked, i) => ({ text: `Criterion ${i + 1}`, checked }))
 
-// A task as `starpulse board --holder` prints it.
+// A task as `starpulse board --assignee` prints it.
 const task = (fields: Record<string, unknown>) => ({
-  holder: 'session-1',
+  assignee: 'session-1',
   criteria: CRITERIA,
   pause_reason: '',
   waiting_on: [],
@@ -101,7 +101,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     const { text } = await $.command.run(RUN)
 
-    expect(argv).toEqual(['starpulse', 'board', '--holder', SESSION])
+    expect(argv).toEqual(['starpulse', 'board', '--assignee', SESSION])
     expect(text).toBe('PROJ-1 [In Progress] Add the verbs\nPROJ-2 [Review] Rotate the secret')
   })
 
@@ -331,7 +331,7 @@ test('terminal pane: ID, title, lane and holder, reason, criteria with ticks, PR
       [
         'needs_attention',
         'Needs Attention',
-        [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm it', holder: SESSION })],
+        [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm it', assignee: SESSION })],
       ],
     ]),
   )
@@ -541,7 +541,7 @@ const KANBAN = board([
   ['new', 'New', [task({ id: 'TASK-9', title: 'Unshaped' })]],
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', assignee: '@agent-standard-medium', moves: { in_progress: { allowed: true }, waiting: { allowed: true } } })]],
   ['waiting', 'Waiting', []],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', holder: 'session-2', moves: { review: { allowed: true }, ready: { allowed: false, reason: 'made by operator, not agent' } } })]],
+  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2', moves: { review: { allowed: true }, ready: { allowed: false, reason: 'made by operator, not agent' } } })]],
   ['review', 'Review', []],
   ['needs_attention', 'Needs Attention', []],
   ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
@@ -573,7 +573,7 @@ const sent = (argv: readonly string[]) => JSON.parse(argv[argv.indexOf('--data')
 const FULL = board([
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one' })]],
   ['waiting', 'Waiting', [task({ id: 'TASK-11', title: 'Waiting one', waiting_on: ['TASK-7'] })]],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', holder: 'session-2' })]],
+  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2' })]],
   ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed one' })]],
   ['needs_attention', 'Needs attention', [task({ id: 'TASK-13', title: 'Stuck one', pause_reason: 'operator' })]],
   ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
@@ -684,7 +684,7 @@ test('a lanes frame from the stream redraws the open Board tab with no starpulse
   const ui = await openKanban($, on, { lanes: [stream], ran, spawned })
   const before = ran.length
 
-  stream.lanes(board([['review', 'Review', [task({ id: 'TASK-11', title: 'Just arrived', holder: 'session-3' })]]]))
+  stream.lanes(board([['review', 'Review', [task({ id: 'TASK-11', title: 'Just arrived', assignee: 'session-3' })]]]))
   await settle()
 
   expect((await ui.find({ key: 'task:TASK-11' }))?.props.label).toBe('TASK-11 Just arrived')
@@ -790,8 +790,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     expect(await ui.find({ key: 'details-PROJ-1' })).toBeDefined()
     expect(await ui.find({ key: 'details-PROJ-2' })).toBeDefined()
-    expect(spawned.find(argv => argv[0] === 'curl')?.at(-1)).toBe('http://localhost:8766/api/held?holder=session-1')
-    expect(ran.filter(argv => argv.join(' ').includes('--holder'))).toEqual([])
+    expect(spawned.find(argv => argv[0] === 'curl')?.at(-1)).toBe('http://localhost:8766/api/held?assignee=session-1')
+    expect(ran.filter(argv => argv.join(' ').includes('--assignee'))).toEqual([])
   })
 
   test(`a tool call and a turn's end read no board (${surface})`, async ($, on) => {
@@ -839,7 +839,7 @@ const LANE_COLORS = { in_progress: '#fbbf24', review: '#a78bfa', needs_attention
 const COLOURED = board([
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', moves: { in_progress: { allowed: true } } })]],
   ['waiting', 'Waiting', [task({ id: 'TASK-11', title: 'Waits', waiting_on: ['TASK-7'] })]],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', holder: 'session-2', moves: { review: { allowed: true }, done: { allowed: true } } })]],
+  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2', moves: { review: { allowed: true }, done: { allowed: true } } })]],
   ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed', prs: [{ url: `${PULL}/9`, checks: 'pass' }] })]],
   ['needs_attention', 'Needs Attention', [task({ id: 'TASK-13', title: 'Stuck', pause_reason: 'Operator: pick one', prs: [] })]],
 ])
