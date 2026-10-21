@@ -1,39 +1,39 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
-import type { BoardTask, HeldTask } from '../types'
-import { CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, ROW_HEIGHT, SP, alt, currentSvg, glyphs, laneHeaderSvg, leanRowSvg, laneIcon, laneOf, paneSvg, progress, ratio, rowSvg, subline, termBar } from './draw'
+import type { BoardTask, HeldTask, Stats } from '../types'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, kfmt, leanRowSvg, laneIcon, laneOf, miniSvg, money, paneSvg, progress, ratio, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
-import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, readLanes, stop, streamOf } from './starpulse'
+import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
 
 const PANE = 'starpulse-board'
 const KANBAN = 'starpulse-kanban'
 
 const tasks = atom({ plugin: 'starpulse-board', key: 'tasks' } as const, null)
-const isHidden = atom({ plugin: 'starpulse-board', key: 'isHidden' } as const, false)
 const openTask = atom({ plugin: 'starpulse-board', key: 'openTask' } as const, null)
 const lanes = atom({ plugin: 'starpulse-board', key: 'lanes' } as const, null)
 const folded = atom({ plugin: 'starpulse-board', key: 'folded' } as const, ['ready', 'waiting', 'done'])
 const pickedTask = atom({ plugin: 'starpulse-board', key: 'pickedTask' } as const, null)
+const stats = atom({ plugin: 'starpulse-board', key: 'stats' } as const, NO_STATS)
+const isMini = atom({ plugin: 'starpulse-board', key: 'isMini' } as const, false)
+
+// The StarPulse page for a task, where "Copy StarPulse link" and the band's Copy point.
+const pageOf = async ($: Engine, id: string) =>
+  `${((await $.env.get('STARPULSE_URL').catch(() => undefined)) || 'http://localhost:8766').replace(/\/+$/, '')}/?view=kanban&task=${id}`
 
 // The tasks this session last claimed, from the StarPulse server `starpulse board` reads; null when it cannot be read.
 const held = async ($: Engine): Promise<HeldTask[] | null> => {
   const session = await $.session.id().catch(() => null)
-  const board = session === null ? null : await readBoard($, ['--holder', session])
+  const board = session === null ? null : await readBoard($, ['--assignee', session])
 
   return board && heldOf(board)
-}
-
-const reloadLanes = async ($: Engine) => {
-  const found = await readLanes($)
-  await update($, lanes, () => found)
 }
 
 
 // The server sends this session's held tasks once and again whenever they change; nothing here asks it twice.
 const followHeld = async ($: Engine) => {
   const session = await $.session.id()
-  const { argv, input } = await streamOf($, `/api/held?holder=${encodeURIComponent(session)}`)
+  const { argv, input } = await streamOf($, `/api/held?assignee=${encodeURIComponent(session)}`)
   const onFrame = async (event: string, data: string) => {
     if (event === 'held') {
       await update($, tasks, () => heldOf(JSON.parse(data) as Board))
@@ -117,12 +117,11 @@ const moveTask = async ($: Engine, id: string, to: string) => {
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 
-// Pixels a monospace cell takes on the remote surfaces, and the room the Details and ✕ buttons beside the Svg row need.
+// Pixels a monospace cell takes on the remote surfaces; the room the band's Copy, Board and fold buttons take beside its
+// drawings; and the room a Board row's lane dot and ID button take beside its lean row.
 const CELL_PX = 7.5
-const BUTTONS_PX = 100
-// The room the Expand/Collapse and Details buttons take beside a Board card.
-const FOLD_PX = 48
-const ID_PX = 112
+const TOOLS_PX = 150
+const ID_PX = 124
 
 type Terminal = ElementTable<'terminal'>
 // Every surface but the terminal draws the Svg; the desktop's table stands for them (Box, Text and Button are the same).
@@ -240,7 +239,6 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'board' }, async $ => {
-    await update($, isHidden, () => false)
     const found = await held($)
     await update($, tasks, () => found)
     if (found === null) {
@@ -291,67 +289,93 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // The band's stats count the main agent's turns: a subagent's turn is inside one of them.
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId) {
+      return result
+    }
+    const usd = (await $.session.usage().catch(() => null))?.cost?.usd
+    const u = e.usage
+    const input = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0
+    const output = u?.output_tokens ?? 0
+    await update($, stats, (s): Stats => {
+      const cost = usd ?? s.cost
+
+      return {
+        turns: s.turns + 1,
+        cost,
+        last: cost - s.cost,
+        tokens: s.tokens + input + output,
+        output: s.output + output,
+        agentMs: s.agentMs + e.durationMs,
+        cacheRead: s.cacheRead + (u?.cache_read_input_tokens ?? 0),
+        inputAll: s.inputAll + input,
+      }
+    })
+
+    return result
+  })
+
+  // The band is always on: banner D's path, PR facts and stats on a desktop, the held rows on the terminal.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const found = (await read($, tasks)) ?? []
-    if (e.props.hasSurvey || !found.length) {
+    if (e.props.hasSurvey) {
       return next(e)
     }
-
+    const found = (await read($, tasks)) ?? []
     const { Box, Button, Text, Svg } = $.ui.resolve(e) as Remote
-    // A desktop draws its native buttons and the Svg cards; the terminal draws bracketed text and cells.
-    const isDesktop = e.surface !== 'terminal'
-    if (await read($, isHidden)) {
+    if (e.surface === 'terminal') {
+      const opened = await read($, openTask)
+
       return (
-        <Button key="show" label="Show task" plain={!isDesktop || undefined} onPress={() => update($, isHidden, () => false)}>
-          {isDesktop ? undefined : <Text color={SP.slate}>Show task</Text>}
-        </Button>
-      )
-    }
-    const hide = isDesktop ? (
-      <Button key="hide" label="Hide" role="dismiss" onPress={() => update($, isHidden, () => true)} />
-    ) : (
-      <Button key="hide" label="✕" plain onPress={() => update($, isHidden, () => true)}>
-        <Text color={SP.faint}>✕</Text>
-      </Button>
-    )
+        <Box flexDirection="column">
+          {found.map(t => {
+            const label = opened === t.id ? 'Close' : 'Details'
 
-    const opened = await read($, openTask)
-    const width = clamp(Math.floor(e.props.bodyColumns * CELL_PX) - BUTTONS_PX, 280, 860)
-
-    return (
-      <Box flexDirection="column" gap={isDesktop ? 1 : 0}>
-        {found.map((t, i) => {
-          const label = opened === t.id ? 'Close' : 'Details'
-
-          return (
-            <Box flexDirection="row" alignItems="center" gap={1}>
-              {isDesktop ? (
-                <Svg source={rowSvg(t, width)} alt={alt(t)} width={width} height={ROW_HEIGHT} />
-              ) : (
-                termRow(Box, Text, t, g)
-              )}
-              {isDesktop ? (
-                <Button key={`details-${t.id}`} label={label} onPress={() => toggle($, t.id)} />
-              ) : (
+            return (
+              <Box flexDirection="row" alignItems="center" gap={1}>
+                {termRow(Box, Text, t, g)}
                 <Button key={`details-${t.id}`} label={label} plain onPress={() => toggle($, t.id)}>
                   <Text color={SP.slate}>{`[${label}]`}</Text>
                 </Button>
-              )}
-              {i === 0 && hide}
-            </Box>
-          )
-        })}
-        {isDesktop ? (
-          <Box flexDirection="row">
-            <Button key="kanban" label="Open board" onPress={() => openBoard($)} />
-          </Box>
-        ) : (
+              </Box>
+            )
+          })}
           <Box flexDirection="row" alignItems="center" gap={2}>
+            {!found.length && <Text color={SP.slate}>No task held</Text>}
             <Button key="kanban" label="Board" plain onPress={() => openBoard($)}>
               <Text color={SP.agent}>{`${g('board')} Board`}</Text>
             </Button>
           </Box>
-        )}
+        </Box>
+      )
+    }
+    const t = found[0] ?? null
+    const s = await read($, stats)
+    const mini = await read($, isMini)
+    const W = clamp(Math.floor(e.props.bodyColumns * CELL_PX), 420, 1100)
+    const headW = W - TOOLS_PX
+    const url = t ? await pageOf($, t.id) : ''
+    const copy = t ? `[${t.id}](${url}) ${t.title}` : ''
+    const body = mini ? null : bandBodySvg(t, s, W)
+    const said = `cost ${money(s.cost)}, tokens ${kfmt(s.tokens)}, turns ${s.turns}`
+
+    return (
+      <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.ready}33`} backgroundColor={SP.stack} overflow="hidden">
+        <Box flexDirection="row" alignItems="center">
+          <Svg
+            source={mini ? miniSvg(t, s, headW) : bandHeadSvg(t, headW)}
+            alt={t ? `${alt(t)}. ${said}` : `No task held. ${said}`}
+            width={headW}
+            height={BAND_HEIGHT}
+          />
+          <Box flexDirection="row" alignItems="center" gap="xs">
+            {t && <Button key="copy" label="Copy" onPress={press => $.ui.copy({ text: copy, surface: press.surface })} />}
+            <Button key="kanban" label="Board" variant="primary" onPress={() => openBoard($)} />
+            <Button key="fold" label={mini ? '▴' : '▾'} onPress={() => update($, isMini, x => !x)} />
+          </Box>
+        </Box>
+        {body && <Svg source={body.source} alt={t ? `Delivery path of ${t.id}, its pull request and the session's stats` : said} width={W} height={body.height} />}
       </Box>
     )
   })
@@ -390,12 +414,37 @@ export const register: Register = (on, options) => {
     const mine = await read($, tasks)
     const { Box, Button, Text, Svg } = $.ui.resolve(e) as Remote
     if (e.surface !== 'terminal') {
-      // The desktop's pane takes the page's own background: no fill, no key hints, drawings for the dividers and chips.
+      // The desktop's pane takes the page's own background; a picked task's detail replaces the lanes until "‹ Board".
       const width = clamp(Math.floor(e.props.bodyColumns * CELL_PX) - 8, 240, 720)
       if (found === null || !found.length) {
         return (
           <Box key="board" flexDirection="column">
             <Text dimColor>{found === null ? 'Reading the Board…' : '`starpulse board` failed: is the StarPulse server running?'}</Text>
+          </Box>
+        )
+      }
+      const pick = found.flatMap(l => l.tasks.map(t => ({ t, state: l.state }))).find(x => x.t.id === picked)
+      if (pick) {
+        const { t, state } = pick
+        const [laneName, color] = laneOf(t)
+        const detail = paneSvg(t, width)
+        const url = await pageOf($, t.id)
+
+        return (
+          <Box key="board" flexDirection="column" gap={1}>
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              <Button key="back" label="‹ Board" onPress={() => update($, pickedTask, () => null)} />
+              <Box flexGrow={1} />
+              <Text color={color}>{`● ${laneName}`}</Text>
+            </Box>
+            <Svg source={detail.source} alt={`${alt(t)}. ${t.title}`} width={width} height={detail.height} />
+            <Box flexWrap="wrap" columnGap={1} rowGap={1}>
+              <Button key={`session:${t.id}`} label={STARTABLE.has(state) ? 'Start session' : 'Go to session'} variant="primary" onPress={() => toSession($, t, state)} />
+              <Button key={`open:${t.id}`} label="Copy StarPulse link" onPress={press => $.ui.copy({ text: url, surface: press.surface })} />
+              {t.moves.map(m => (
+                <Button key={`move:${t.id}:${m.to}`} label={`Move to ${LANE_STYLES[m.to]?.[0] ?? m.name}`} onPress={() => moveTask($, t.id, m.to)} />
+              ))}
+            </Box>
           </Box>
         )
       }
@@ -409,52 +458,46 @@ export const register: Register = (on, options) => {
       return (
         <Box key="board" flexDirection="column" gap={1}>
           <Box flexDirection="row" alignItems="center" gap={1}>
-            <Text bold color={SP.slate}>BOARD</Text>
             <Text color={SP.ok}>●</Text>
-            <Text dimColor>{`${open} ${open === 1 ? 'task' : 'tasks'} · live`}</Text>
+            <Text bold color={SP.slate}>BOARD</Text>
             <Box flexGrow={1} />
-            <Button key="refresh" label="Refresh" onPress={() => reloadLanes($)} />
+            <Text color={SP.muted}>{`${open} ${open === 1 ? 'task' : 'tasks'} · live`}</Text>
           </Box>
           {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} />}
           {lanesShown.map(l => {
             const isFolded = shut.includes(l.state)
             const [laneName, color] = LANE_STYLES[l.state] ?? [l.name, SP.slate]
-            const header = laneHeaderSvg(laneName, color, l.tasks.length, width - FOLD_PX, l.state === 'done' ? 'last 24h' : '')
+            const count = `${l.tasks.length}${l.state === 'done' ? ' · last 24h' : ''}`
 
             return (
-              <Box key={`lane-${l.state}`} flexDirection="column" gap={1}>
-                <Box flexDirection="row" alignItems="center" gap={1}>
-                  <Button key={`lane:${l.state}`} label={isFolded ? '▸' : '▾'} onPress={() => fold(l.state)} />
-                  <Svg source={header.source} alt={`${l.name}, ${l.tasks.length}`} width={width - FOLD_PX} height={header.height} />
-                </Box>
+              <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
+                <Button key={`lane:${l.state}`} label={`${laneName} ${count}`} plain onPress={() => fold(l.state)}>
+                  <Text color={SP.faint}>{isFolded ? '›' : '⌄'}</Text>
+                  {' '}
+                  <Text bold color={color}>
+                    {laneName.toUpperCase()}
+                  </Text>
+                  {' '}
+                  <Text color={SP.muted}>{count}</Text>
+                </Button>
                 {!isFolded &&
-                  l.tasks.map(t => {
-                    const isPicked = picked === t.id
-                    const isStartable = STARTABLE.has(l.state)
-                    const detail = isPicked ? paneSvg(t, width) : null
-
-                    return (
-                      <Box key={`row-${t.id}`} flexDirection="column" gap={1}>
-                        <Box flexDirection="row" alignItems="center" gap={1}>
-                          <Button key={`task:${t.id}`} label={t.id} onPress={() => update($, pickedTask, x => (x === t.id ? null : t.id))} />
-                          <Svg source={leanRowSvg(t, width - ID_PX, isPicked)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
-                        </Box>
-                        {detail && (
-                          <Box key={`detail-${t.id}`} flexDirection="column" gap={1}>
-                            <Svg source={detail.source} alt={`${alt(t)}. ${t.title}`} width={width} height={detail.height} />
-                            <Box flexWrap="wrap" columnGap={1} rowGap={1}>
-                              {isStartable && (
-                                <Button key={`session:${t.id}`} label="Start session" variant="primary" onPress={() => toSession($, t, l.state)} />
-                              )}
-                              {t.moves.map(m => (
-                                <Button key={`move:${t.id}:${m.to}`} label={`Move to ${LANE_STYLES[m.to]?.[0] ?? m.name}`} onPress={() => moveTask($, t.id, m.to)} />
-                              ))}
-                            </Box>
-                          </Box>
-                        )}
-                      </Box>
-                    )
-                  })}
+                  l.tasks.map(t => (
+                    <Box
+                      key={`row-${t.id}`}
+                      flexDirection="row"
+                      alignItems="center"
+                      gap={1}
+                      paddingX={1}
+                      borderStyle="round"
+                      borderColor={`${SP.ready}1f`}
+                      backgroundColor={SP.stack}
+                      hover={{ borderColor: color }}
+                    >
+                      <Text color={color}>●</Text>
+                      <Button key={`task:${t.id}`} label={t.id} plain onPress={() => update($, pickedTask, () => t.id)} />
+                      <Svg source={leanRowSvg(t, width - ID_PX)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
+                    </Box>
+                  ))}
               </Box>
             )
           })}
@@ -559,10 +602,6 @@ export const register: Register = (on, options) => {
         <Box>
           <Text bold color={SP.agent}>{`${g('board')} Board`}</Text>
           <Text color={SP.muted}>{` · ${open} open`}</Text>
-          <Box flexGrow={1} />
-          <Button key="refresh" label="Refresh" plain onPress={() => reloadLanes($)}>
-            <Text color={SP.faint}>{g('refresh')}</Text>
-          </Button>
         </Box>
         {found.map(l => {
           const isFolded = shut.includes(l.state)

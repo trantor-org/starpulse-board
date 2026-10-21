@@ -1,8 +1,8 @@
 /** What a pull request's checks roll up to; `none` when it has no required checks yet. */
 export type Checks = 'pass' | 'pending' | 'fail' | 'none'
 
-/** The pull request a task cites: its repository, number and checks. */
-export type Pull = { repo: string; number: number; checks: Checks }
+/** The pull request a task cites: its repository, number, checks, open review threads and commits behind main (null when unknown). */
+export type Pull = { repo: string; number: number; checks: Checks; threads: number | null; behindMain: number | null }
 
 /** One acceptance criterion; `checked` is absent when the server cannot say. */
 export type Criterion = { text: string; checked?: boolean }
@@ -22,6 +22,21 @@ export type HeldTask = {
   reason: string
   waitingOn: string[]
   pull: Pull | null
+  /** The delivery phase (`build`, `deliver`, `review_fix`, `parked`) and its substate, empty when the server serves none. */
+  phase: string
+  substate: string
+}
+
+/** What the band's stats footer counts over the session's main-agent turns: cost in USD, tokens and agent time. */
+export type Stats = {
+  turns: number
+  cost: number
+  last: number
+  tokens: number
+  output: number
+  agentMs: number
+  cacheRead: number
+  inputAll: number
 }
 
 /** A column a task may move to: its state id and name. */
@@ -37,11 +52,12 @@ declare module 'claude-code' {
   interface PluginState {
     'starpulse-board': {
       tasks: HeldTask[] | null
-      isHidden: boolean
       openTask: string | null
       lanes: Lane[] | null
       folded: string[]
       pickedTask: string | null
+      stats: Stats
+      isMini: boolean
     }
   }
 }

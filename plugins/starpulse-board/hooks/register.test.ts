@@ -4,9 +4,9 @@ import { expect, mock, test } from 'claude-code/testing'
 const PULL = 'https://github.com/trantor-org/starpulse/pull'
 const CRITERIA = [true, true, false, false].map((checked, i) => ({ text: `Criterion ${i + 1}`, checked }))
 
-// A task as `starpulse board --holder` prints it.
+// A task as `starpulse board --assignee` prints it.
 const task = (fields: Record<string, unknown>) => ({
-  holder: 'session-1',
+  assignee: 'session-1',
   criteria: CRITERIA,
   pause_reason: '',
   waiting_on: [],
@@ -101,7 +101,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     const { text } = await $.command.run(RUN)
 
-    expect(argv).toEqual(['starpulse', 'board', '--holder', SESSION])
+    expect(argv).toEqual(['starpulse', 'board', '--assignee', SESSION])
     expect(text).toBe('PROJ-1 [In Progress] Add the verbs\nPROJ-2 [Review] Rotate the secret')
   })
 
@@ -141,20 +141,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     expect(argv0).toEqual(['starpulse', '/home/me/.local/bin/starpulse'])
     expect(text).toBe('PROJ-1 [In Progress] Add the verbs\nPROJ-2 [Review] Rotate the secret')
-    expect(await ui.find({ key: 'hide' })).toBeDefined()
+    expect(await ui.find({ key: 'kanban' })).toBeDefined()
   })
 
-  test(`✕ takes the band down to Show task until /board (${surface})`, async ($, on) => {
+  test(`the band stays on with no hide button (${surface})`, async ($, on) => {
     serve(on, BOARD)
 
     await $.command.run(RUN)
     const ui = await band($, surface)
-    await ui.press({ key: 'hide' })
 
     expect(await ui.find({ key: 'hide' })).toBeUndefined()
-    expect(await ui.find({ key: 'show' })).toBeDefined()
-    await ui.press({ key: 'show' })
-    expect(await ui.find({ key: 'hide' })).toBeDefined()
+    expect(await ui.find({ key: 'kanban' })).toBeDefined()
   })
 
   for (const [why, exitCode, stdout] of [
@@ -172,22 +169,22 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await ui.find({ key: 'show' })).toBeUndefined()
     })
   }
-
-  test(`Details opens the pane and Close closes it (${surface})`, async ($, on) => {
-    const opened: string[] = []
-    serve(on, BOARD, { open: id => opened.push(`open ${id}`), close: id => opened.push(`close ${id}`) })
-
-    await $.command.run(RUN)
-    const ui = await band($, surface)
-    await ui.press({ key: 'details-PROJ-1' })
-    expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Close')
-    expect((await ui.find({ key: 'details-PROJ-2' }))?.props.label).toBe('Details')
-    await ui.press({ key: 'details-PROJ-1' })
-
-    expect(opened).toEqual(['open starpulse-board', 'close starpulse-board'])
-    expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
-  })
 }
+
+test('Details opens the pane and Close closes it (terminal)', async ($, on) => {
+  const opened: string[] = []
+  serve(on, BOARD, { open: id => opened.push(`open ${id}`), close: id => opened.push(`close ${id}`) })
+
+  await $.command.run(RUN)
+  const ui = await band($, 'terminal')
+  await ui.press({ key: 'details-PROJ-1' })
+  expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Close')
+  expect((await ui.find({ key: 'details-PROJ-2' }))?.props.label).toBe('Details')
+  await ui.press({ key: 'details-PROJ-1' })
+
+  expect(opened).toEqual(['open starpulse-board', 'close starpulse-board'])
+  expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
+})
 
 test('terminal row: ID, title, AC bar and k/n, column, PR and its checks, buttons', async ($, on) => {
   serve(on, BOARD)
@@ -200,7 +197,6 @@ test('terminal row: ID, title, AC bar and k/n, column, PR and its checks, button
   }
   expect(await checkColor(ui, 'PROJ-1')).toBe('#fbbf24')
   expect(await checkColor(ui, 'PROJ-2')).toBe('#34d399')
-  expect((await ui.find({ key: 'hide' }))?.props.label).toBe('✕')
   expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
 })
 
@@ -253,22 +249,23 @@ test('terminal row: no checked data draws a count without a bar, no criteria dra
   expect(await ui.find({ type: 'Text', text: /criteria/ })).toBeDefined()
 })
 
-test('desktop row: one Svg carries the ID, title, bar, k/n, lane and PR, with alt text', async ($, on) => {
+const svgs = async (ui: any) => ((await ui.findAll({ type: 'Svg' })) as any[]).map(x => x.props as { source: string; alt: string })
+
+test('desktop band: the head carries the lane dot, ID, title and bar; the body the PR and stats', async ($, on) => {
   serve(on, BOARD)
 
   await $.command.run(RUN)
-  const ui = await band($, 'desktop')
-  const svg = await drawn(ui)
+  const [head, body] = await svgs(await band($, 'desktop'))
 
-  expect(svg?.alt).toBe('PROJ-1: In Progress, 2 of 4 criteria, PR #392 checks running')
-  for (const text of ['PROJ-1', 'Add the verbs', '2/4', 'In Progress', '#392', '#fbbf24']) {
-    expect(svg?.source, text).toContain(text)
+  expect(head?.alt).toContain('PROJ-1: In Progress, 2 of 4 criteria, PR #392 checks running. cost ')
+  for (const text of ['PROJ-1', 'Add the verbs', '#fbbf24']) {
+    expect(head?.source, text).toContain(text)
   }
-  expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
-  expect((await ui.find({ key: 'hide' }))?.props.label).toBe('Hide')
+  expect(body?.source).toContain('#392')
+  expect(body?.source).toContain('turns')
 })
 
-test('desktop row: a Needs attention reason replaces the title; no checked data drops the bar', async ($, on) => {
+test('desktop band: a Needs attention reason shows on the path', async ($, on) => {
   serve(
     on,
     board([
@@ -281,28 +278,25 @@ test('desktop row: a Needs attention reason replaces the title; no checked data 
   )
 
   await $.command.run(RUN)
-  const svg = await drawn(await band($, 'desktop'))
+  const [head, body] = await svgs(await band($, 'desktop'))
 
-  expect(svg?.source).toContain('Operator: confirm the target was retired')
-  expect(svg?.source).not.toContain('Investigate the alert')
-  expect(svg?.source).toContain('1 criterion')
-  expect(svg?.source).not.toMatch(/\d\/\d/)
-  expect(svg?.alt).toBe('PROJ-4: Needs attention, 1 criterion')
+  expect(head?.alt).toContain('PROJ-4: Needs attention, 1 criterion')
+  expect(body?.source).toContain('Operator: confirm the target was retired')
 })
 
-test('desktop row: a narrow band drops the title, then the PR; the ID, bar and count stay', async ($, on) => {
-  serve(on, BOARD)
+test('desktop band: with no held task it stays on and says so', async ($, on) => {
+  serve(on, '', { run: () => answer(0, board([['ready', 'Ready', []]])) })
 
   await $.command.run(RUN)
-  const svg = await drawn(await band($, 'desktop', { ...PROPS, bodyColumns: 36 }))
+  const ui = await band($, 'desktop')
+  const [head] = await svgs(ui)
 
-  expect(svg?.source).toContain('PROJ-1')
-  expect(svg?.source).toContain('2/4')
-  expect(svg?.source).not.toContain('Add the verbs')
-  expect(svg?.source).not.toContain('#392')
+  expect(head?.source).toContain('No task held')
+  expect(await ui.find({ key: 'kanban' })).toBeDefined()
+  expect(await ui.find({ key: 'copy' })).toBeUndefined()
 })
 
-test('desktop row: the Svg animates only under no-preference motion, and only a live lane or running check animates', async ($, on) => {
+test('desktop band: the head animates only under no-preference motion, and only for a live lane', async ($, on) => {
   const quiet = board([['review', 'Review', [task({ id: 'PROJ-2', title: 'Rotate the secret', prs: [{ url: `${PULL}/388`, checks: 'pass' }] })]]])
   let current = BOARD
   serve(on, '', { run: () => answer(0, current) })
@@ -314,14 +308,12 @@ test('desktop row: the Svg animates only under no-preference motion, and only a 
   expect(live).not.toContain('prefers-reduced-motion: reduce')
   expect(live).toContain('class="live"')
   expect(live.indexOf('animation:'), 'no animation outside the media query').toBeGreaterThan(live.indexOf(gated))
-  expect(live).toContain('.t0,.t1,.t2,.t3{animation:tw')
 
   current = quiet
   await $.command.run(RUN)
   const still = (await drawn(await band($, 'desktop')))?.source ?? ''
 
   expect(still).not.toContain('class="live"')
-  expect(still).not.toContain('.t0,.t1,.t2,.t3{animation:tw')
 })
 
 test('terminal pane: ID, title, lane and holder, reason, criteria with ticks, PR and its checks', async ($, on) => {
@@ -331,7 +323,7 @@ test('terminal pane: ID, title, lane and holder, reason, criteria with ticks, PR
       [
         'needs_attention',
         'Needs Attention',
-        [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm it', holder: SESSION })],
+        [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm it', assignee: SESSION })],
       ],
     ]),
   )
@@ -373,13 +365,13 @@ for (const surface of ['desktop', 'mobile'] as const) {
     )
 
     await $.command.run(RUN)
-    await (await band($, 'desktop')).press({ key: 'details-PROJ-4' })
     const svg = await drawn(await pane($, surface))
 
-    for (const text of ['PROJ-4', 'Investigate the alert', 'Needs attention', 'held by session-1', 'Operator: confirm it', 'ACCEPTANCE CRITERIA', '2/4', 'Criterion 1', 'Criterion 4', 'trantor-org/starpulse#392', 'checks running']) {
+    for (const text of ['PROJ-4', 'Investigate the alert', 'Operator: confirm it', 'ACCEPTANCE CRITERIA', '2/4', 'Criterion 1', 'Criterion 4', '#392', 'PULL REQUEST', 'checks running']) {
       expect(svg?.source, text).toContain(text)
     }
     expect(svg?.alt).toContain('PROJ-4')
+    expect(svg?.alt).toContain('Needs attention')
     expect(svg?.source).toContain('@media (prefers-reduced-motion: no-preference)')
   })
 }
@@ -541,7 +533,7 @@ const KANBAN = board([
   ['new', 'New', [task({ id: 'TASK-9', title: 'Unshaped' })]],
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', assignee: '@agent-standard-medium', moves: { in_progress: { allowed: true }, waiting: { allowed: true } } })]],
   ['waiting', 'Waiting', []],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', holder: 'session-2', moves: { review: { allowed: true }, ready: { allowed: false, reason: 'made by operator, not agent' } } })]],
+  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2', moves: { review: { allowed: true }, ready: { allowed: false, reason: 'made by operator, not agent' } } })]],
   ['review', 'Review', []],
   ['needs_attention', 'Needs Attention', []],
   ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
@@ -573,7 +565,7 @@ const sent = (argv: readonly string[]) => JSON.parse(argv[argv.indexOf('--data')
 const FULL = board([
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one' })]],
   ['waiting', 'Waiting', [task({ id: 'TASK-11', title: 'Waiting one', waiting_on: ['TASK-7'] })]],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', holder: 'session-2' })]],
+  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2' })]],
   ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed one' })]],
   ['needs_attention', 'Needs attention', [task({ id: 'TASK-13', title: 'Stuck one', pause_reason: 'operator' })]],
   ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
@@ -684,7 +676,7 @@ test('a lanes frame from the stream redraws the open Board tab with no starpulse
   const ui = await openKanban($, on, { lanes: [stream], ran, spawned })
   const before = ran.length
 
-  stream.lanes(board([['review', 'Review', [task({ id: 'TASK-11', title: 'Just arrived', holder: 'session-3' })]]]))
+  stream.lanes(board([['review', 'Review', [task({ id: 'TASK-11', title: 'Just arrived', assignee: 'session-3' })]]]))
   await settle()
 
   expect((await ui.find({ key: 'task:TASK-11' }))?.props.label).toBe('TASK-11 Just arrived')
@@ -788,10 +780,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     stream.held(BOARD)
     await settle()
 
-    expect(await ui.find({ key: 'details-PROJ-1' })).toBeDefined()
-    expect(await ui.find({ key: 'details-PROJ-2' })).toBeDefined()
-    expect(spawned.find(argv => argv[0] === 'curl')?.at(-1)).toBe('http://localhost:8766/api/held?holder=session-1')
-    expect(ran.filter(argv => argv.join(' ').includes('--holder'))).toEqual([])
+    if (surface === 'terminal') {
+      expect(await ui.find({ key: 'details-PROJ-1' })).toBeDefined()
+      expect(await ui.find({ key: 'details-PROJ-2' })).toBeDefined()
+    } else {
+      expect((await drawn(ui))?.alt).toContain('PROJ-1')
+    }
+    expect(spawned.find(argv => argv[0] === 'curl')?.at(-1)).toBe('http://localhost:8766/api/held?assignee=session-1')
+    expect(ran.filter(argv => argv.join(' ').includes('--assignee'))).toEqual([])
   })
 
   test(`a tool call and a turn's end read no board (${surface})`, async ($, on) => {
@@ -823,15 +819,19 @@ for (const surface of ['terminal', 'desktop'] as const) {
     second.held(board([['review', 'Review', [task({ id: 'PROJ-9', title: 'After the restart' })]]]))
     await settle()
 
-    expect(await ui.find({ key: 'details-PROJ-9' })).toBeDefined()
-    expect(await ui.find({ key: 'details-PROJ-1' })).toBeUndefined()
+    if (surface === 'terminal') {
+      expect(await ui.find({ key: 'details-PROJ-9' })).toBeDefined()
+      expect(await ui.find({ key: 'details-PROJ-1' })).toBeUndefined()
+    } else {
+      expect((await drawn(ui))?.alt).toContain('PROJ-9')
+    }
   })
 
 }
 
 // The Nerd Font v3 icons the mod draws by default, and the plain characters `glyphs: plain` swaps in.
-const NERD = { inProgress: '', pending: '', pass: '', move: '', refresh: '', board: '', go: '', pr: '' }
-const PLAIN = { inProgress: '▶', pending: '●', pass: '✓', move: '→', refresh: '↻', board: '▦', go: '↗', pr: '#' }
+const NERD = { inProgress: '', pending: '', pass: '', move: '', board: '', go: '', pr: '' }
+const PLAIN = { inProgress: '▶', pending: '●', pass: '✓', move: '→', board: '▦', go: '↗', pr: '#' }
 
 const LANE_COLORS = { in_progress: '#fbbf24', review: '#a78bfa', needs_attention: '#fb7185', ready: '#60a5fa', waiting: '#94a3b8', done: '#34d399' }
 
@@ -839,7 +839,7 @@ const LANE_COLORS = { in_progress: '#fbbf24', review: '#a78bfa', needs_attention
 const COLOURED = board([
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', moves: { in_progress: { allowed: true } } })]],
   ['waiting', 'Waiting', [task({ id: 'TASK-11', title: 'Waits', waiting_on: ['TASK-7'] })]],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', holder: 'session-2', moves: { review: { allowed: true }, done: { allowed: true } } })]],
+  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2', moves: { review: { allowed: true }, done: { allowed: true } } })]],
   ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed', prs: [{ url: `${PULL}/9`, checks: 'pass' }] })]],
   ['needs_attention', 'Needs Attention', [task({ id: 'TASK-13', title: 'Stuck', pause_reason: 'Operator: pick one', prs: [] })]],
 ])
@@ -874,7 +874,6 @@ for (const glyphs of ['nerd', 'plain'] as const) {
     const tab = await texts(ui)
 
     // Refresh, lane icon, PR glyph, then the move arrow and the go icon once a task is picked.
-    expect(has(tab, set.refresh), 'refresh').toBe(true)
     expect(has(tab, set.inProgress), 'lane icon').toBe(true)
     expect(has(tab, `${set.move} Review`), 'move arrow').toBe(true)
     expect(has(tab, `${set.go} Go to session`), 'go icon').toBe(true)
@@ -986,7 +985,7 @@ const NERD_ICON = /[\ue000-\uf8ff]/
 const everyText = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((el: any) => String(el.children.join('')))
 const everyButton = async (ui: any) => (await ui.findAll({ type: 'Button' })) as any[]
 
-test('desktop band: native buttons, drawings for the cards, no icon font, no bracketed text, no fill', async ($, on) => {
+test('desktop band: native buttons, a head and body drawing, no icon font, no bracketed text, a stack fill', async ($, on) => {
   const stream = feed()
   sessionsHost(on, { held: [stream] })
 
@@ -996,18 +995,18 @@ test('desktop band: native buttons, drawings for the cards, no icon font, no bra
   await settle()
 
   const buttons = await everyButton(ui)
-  expect(buttons.map(b => b.key).sort()).toEqual(['details-PROJ-1', 'details-PROJ-2', 'hide', 'kanban'])
+  expect(buttons.map(b => b.key).sort()).toEqual(['copy', 'fold', 'kanban'])
   expect(buttons.some(b => b.props.plain), 'native buttons, not plain text').toBe(false)
-  expect((await ui.findAll({ type: 'Svg' })).length, 'one card a task').toBe(2)
+  expect((await ui.findAll({ type: 'Svg' })).length, 'head and body').toBe(2)
   const seen = (await everyText(ui)).join('|')
   expect(seen).not.toMatch(NERD_ICON)
   expect(seen).not.toContain('[')
   expect(seen).not.toContain('✕')
-  expect((await ui.findAll({})).some((el: any) => el.props.backgroundColor), 'no fill').toBe(false)
+  expect((await ui.findAll({})).filter((el: any) => el.props.backgroundColor).map((el: any) => el.props.backgroundColor)).toEqual(['#11192b'])
   await ui.unmount()
 })
 
-test('desktop Board tab: a header, lean rows and lane headers are drawings; buttons are native, no rules, hints, icon font or fill', async ($, on) => {
+test('desktop Board tab: a text header and lane headers, lean row drawings on stack rows, no rules, hints or icon font', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const seen = (await everyText(ui)).join('|')
@@ -1017,18 +1016,13 @@ test('desktop Board tab: a header, lean rows and lane headers are drawings; butt
   expect(seen).not.toContain('pick')
   expect(seen).toContain('BOARD')
   expect(seen).toContain('3 tasks · live')
-  expect((await ui.findAll({})).some((el: any) => el.props.backgroundColor), 'the page behind shows through').toBe(false)
+  expect(seen).toContain('IN PROGRESS')
+  expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.backgroundColor)).toBe('#11192b')
   const buttons = await everyButton(ui)
-  expect(buttons.some(b => b.props.plain)).toBe(false)
-  expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['refresh', 'lane:in_progress', 'lane:ready', 'task:TASK-7']))
-  const svgs = await ui.findAll({ type: 'Svg' })
-  const alts = svgs.map((s: any) => s.props.alt)
-  expect(alts).toContain('In Progress, 1')
+  expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready', 'task:TASK-7']))
+  expect(buttons.map(b => b.key)).not.toContain('refresh')
+  const alts = (await ui.findAll({ type: 'Svg' })).map((s: any) => s.props.alt)
   expect(alts.some((a: string) => a.startsWith('TASK-7: In Progress'))).toBe(true)
-  const header = svgs.find((s: any) => s.props.alt === 'In Progress, 1') as any
-  expect(header.props.source).toContain('IN PROGRESS')
-  expect(header.props.source, 'no rule runs to the edge').not.toContain('<rect x=')
-  expect(header.props.source, 'a hollow ring in the lane colour').toContain('fill="none" stroke="#fbbf24"')
   await ui.unmount()
 })
 
@@ -1042,17 +1036,16 @@ test('desktop Board tab: a row is lean: its ID is the button, with no Details, C
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
   expect(row.props.source).toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
-  expect(row.props.height).toBe(32)
+  expect(row.props.height).toBe(26)
   await ui.unmount()
 })
 
 test('desktop Board tab: only Done carries the last 24h hint', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
 
-  const svgs = await ui.findAll({ type: 'Svg' })
-  const source = (alt: string) => (svgs.find((s: any) => s.props.alt === alt) as any).props.source as string
-  expect(source('Done, 1')).toContain('last 24h')
-  expect(source('In Progress, 1')).not.toContain('last 24h')
+  const seen = await everyText(ui)
+  expect(seen).toContain('1 · last 24h')
+  expect(seen.filter((t: string) => t.includes('last 24h'))).toHaveLength(1)
   await ui.unmount()
 })
 
@@ -1060,11 +1053,12 @@ test('desktop Board tab: the lane buttons are arrows that fold, and Ready starts
   const ui = await openKanban($, on, {}, 'desktop')
 
   expect(await ui.find({ key: 'task:TASK-10' }), 'Ready is folded').toBeUndefined()
-  expect((await ui.find({ key: 'lane:ready' }))?.props.label).toBe('▸')
-  expect((await ui.find({ key: 'lane:in_progress' }))?.props.label).toBe('▾')
+  const glyph = async (state: string) => String((await ui.find({ key: `lane:${state}` }))?.children?.[0]?.children?.join(''))
+  expect(await glyph('ready')).toBe('›')
+  expect(await glyph('in_progress')).toBe('⌄')
   await ui.press({ key: 'lane:ready' })
   expect((await ui.find({ key: 'task:TASK-10' }))?.props.label).toBe('TASK-10')
-  expect((await ui.find({ key: 'lane:ready' }))?.props.label).toBe('▾')
+  expect(await glyph('ready')).toBe('⌄')
   await ui.unmount()
 })
 

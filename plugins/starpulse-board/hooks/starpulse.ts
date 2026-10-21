@@ -11,7 +11,9 @@ export type RawTask = {
   waiting_on?: string[]
   criteria?: { text: string; checked?: boolean }[]
   pause_reason?: string
-  prs?: { url: string; number?: number; checks?: string; merged?: boolean }[]
+  phase?: string | null
+  substate?: string | null
+  prs?: { url: string; number?: number; checks?: string; merged?: boolean; threads?: number | null; behind_main?: number | null }[]
   done_at?: string
 }
 export type Board = { columns: { state: string; name: string; tasks: RawTask[] }[] }
@@ -29,7 +31,7 @@ export const pullOf = (prs: RawTask['prs']): Pull | null => {
     return null
   }
 
-  return { repo, number, checks: CHECK_NAMES[pr.checks ?? ''] ?? 'none' }
+  return { repo, number, checks: CHECK_NAMES[pr.checks ?? ''] ?? 'none', threads: pr.threads ?? null, behindMain: pr.behind_main ?? null }
 }
 
 export const taskOf = (t: RawTask, c: Board['columns'][number]): HeldTask => ({
@@ -37,11 +39,13 @@ export const taskOf = (t: RawTask, c: Board['columns'][number]): HeldTask => ({
   title: t.title,
   column: c.name,
   lane: c.state,
-  holder: t.holder ?? '',
+  holder: t.assignee ?? t.holder ?? '',
   criteria: t.criteria ?? null,
   reason: t.pause_reason ?? '',
   waitingOn: t.waiting_on ?? [],
   pull: pullOf(t.prs),
+  phase: t.phase ?? '',
+  substate: t.substate ?? '',
 })
 
 export const heldOf = (board: Board): HeldTask[] => board.columns.flatMap(c => c.tasks.map(t => taskOf(t, c)))
@@ -55,7 +59,7 @@ export async function readBoard($: Engine, filters: string[]): Promise<Board | n
     const run = (argv0: string) => $.process.run([argv0, ...args]).catch(() => null)
     let ran = await run('starpulse')
     if (ran?.exitCode !== 0) {
-      // A virtualenv on PATH can hold a starpulse older than --holder; the user-wide install is current.
+      // A virtualenv on PATH can hold a starpulse older than --assignee; the user-wide install is current.
       ran = await run(`${await $.env.get('HOME')}/.local/bin/starpulse`)
     }
     if (ran?.exitCode !== 0) {

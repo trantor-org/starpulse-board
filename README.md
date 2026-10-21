@@ -14,13 +14,18 @@ documents the band and the Board pane.
 ## Board mod
 
 At session start the Board tab opens in the dock without taking the keys. On the terminal it draws cells, with the
-`glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws Svg cards for each task and lane
-header, native buttons (Details, Expand/Collapse, Refresh, Start session, Move to ...), no icon font, no key hints, and
-the page's own background (each card carries its own dark surface, so it reads on a light or a dark theme).
+`glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws a text header, a Current task card for
+the task this session holds (its lane, criteria, progress bar and pull request), then one lean Svg row per task on a
+navy root, with native buttons (the task ID, lane fold arrows, Start session, Move to ...) and no icon font or key hints.
 
-## Black dock
+Above the prompt an always-on band draws the held task: its lane, ID, title and bar, the delivery phases and substates
+the board serves, the pull request's checks, threads and freshness, and the session's cost, turns and tokens. With no
+held task it stays on and says so; it has no hide button.
 
-On the terminal the Board pane fills their body black. The dock's tab strip, left border and bottom row are Claude Code's
+## Themes
+
+On the terminal the Board pane fills its body navy. The dock's tab strip, left border and bottom row are Claude Code's
 `composerSidebarBackground` (grey in the dark theme), which no pane draws. The Board mod ships the theme
-`themes/black-dock.json`, the dark theme with that key black; select it with
-`"theme": "custom:starpulse-board:black-dock"` in `~/.claude/settings.json`.
+`themes/navy.json`, the dark theme with that key, message backgrounds, text and accents in the StarPulse navy palette,
+and `themes/black-dock.json`, the dark theme with that key black. Select one with
+`"theme": "custom:starpulse-board:navy"` (or `:black-dock`) in `~/.claude/settings.json`.
