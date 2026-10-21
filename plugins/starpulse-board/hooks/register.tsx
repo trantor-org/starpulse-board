@@ -17,7 +17,7 @@ const pickedTask = atom({ plugin: 'starpulse-board', key: 'pickedTask' } as cons
 const stats = atom({ plugin: 'starpulse-board', key: 'stats' } as const, NO_STATS)
 const isMini = atom({ plugin: 'starpulse-board', key: 'isMini' } as const, false)
 
-// The StarPulse page for a task, where "Open in StarPulse" and the band's Copy point.
+// The StarPulse page for a task, where "Copy StarPulse link" and the band's Copy point.
 const pageOf = async ($: Engine, id: string) =>
   `${((await $.env.get('STARPULSE_URL').catch(() => undefined)) || 'http://localhost:8766').replace(/\/+$/, '')}/?view=kanban&task=${id}`
 
@@ -440,7 +440,7 @@ export const register: Register = (on, options) => {
             <Svg source={detail.source} alt={`${alt(t)}. ${t.title}`} width={width} height={detail.height} />
             <Box flexWrap="wrap" columnGap={1} rowGap={1}>
               <Button key={`session:${t.id}`} label={STARTABLE.has(state) ? 'Start session' : 'Go to session'} variant="primary" onPress={() => toSession($, t, state)} />
-              <Button key={`open:${t.id}`} label="Open in StarPulse" onPress={press => $.ui.copy({ text: url, surface: press.surface })} />
+              <Button key={`open:${t.id}`} label="Copy StarPulse link" onPress={press => $.ui.copy({ text: url, surface: press.surface })} />
               {t.moves.map(m => (
                 <Button key={`move:${t.id}:${m.to}`} label={`Move to ${LANE_STYLES[m.to]?.[0] ?? m.name}`} onPress={() => moveTask($, t.id, m.to)} />
               ))}
