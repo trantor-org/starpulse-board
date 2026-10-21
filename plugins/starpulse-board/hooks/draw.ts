@@ -427,14 +427,15 @@ const PHASES: [id: string, name: string, subs: [id: string, name: string][]][] =
 ]
 
 /**
- * Where a task stands on the delivery path: the phase it is in, how many of that phase's substates it reached (a
- * substate is an achievement, so `start` is none), whether it is past the last one, and a needs-attention or parked flag.
+ * Where a task stands on the delivery path: the phase it is in (-1 when the board reports none, never a guess), how many
+ * of that phase's substates it reached (a substate is an achievement, so `start` is none), whether it is past the last
+ * one, and a needs-attention or parked flag.
  */
 export const pathOf = (t: HeldTask) => {
   const isFinal = (t.phase === 'review_fix' && t.substate === 'review_recorded') || t.lane === 'review' || t.lane === 'done'
   const found = PHASES.findIndex(([id]) => id === t.phase)
-  const phase = found < 0 ? (isFinal ? PHASES.length - 1 : 0) : found
-  const at = PHASES[phase]![2].findIndex(([id]) => id === t.substate) + 1
+  const phase = found < 0 && isFinal ? PHASES.length - 1 : found
+  const at = (PHASES[phase]?.[2] ?? []).findIndex(([id]) => id === t.substate) + 1
   const flag = t.lane === 'needs_attention' ? 'bad' : t.lane === 'waiting' ? 'hold' : ''
   const why = flag === 'bad' ? t.reason || 'needs attention' : flag === 'hold' ? `parked · until ${t.waitingOn.join(', ') || 'unblocked'}` : ''
 
@@ -444,6 +445,9 @@ export const pathOf = (t: HeldTask) => {
 /** The tests a task's substate proves: RED once the failing test is proven, GREEN from green on; null before either. */
 export const testsOf = (t: HeldTask): { text: string; color: string } | null => {
   const { phase, at, isFinal } = pathOf(t)
+  if (phase < 0) {
+    return null
+  }
   if (isFinal || phase > 0 || at >= 3) {
     return { text: 'tests GREEN', color: SP.ok }
   }
@@ -455,13 +459,15 @@ export const testsOf = (t: HeldTask): { text: string; color: string } | null => 
 const DC: Record<string, string> = { done: SP.ok, now: SP.run, bad: SP.fail, hold: SP.hold, '': SP.track }
 const TC: Record<string, string> = { done: SP.slate, now: SP.runText, bad: SP.failText, hold: SP.holdText, '': SP.slate }
 
-// A ring on the page's navy with a core at 34% of r; a step not started idles at .45.
+// A ring on the page's navy with a core at 34% of r; a step not started idles at .45, and the step that runs pulses its ring.
 const orb = (cx: number, cy: number, size: number, st: string) => {
   const o = st ? 1 : 0.45
 
   return (
-    `<g transform="translate(${cx},${cy}) scale(${size / 12})"><circle r="5" fill="${SP.navy}" stroke="${DC[st]}" stroke-opacity="${0.85 * o}"/>` +
-    `<circle r="1.7" fill="${DC[st]}" fill-opacity="${0.9 * o}"/></g>`
+    `<g transform="translate(${cx},${cy}) scale(${size / 12})">` +
+    (st === 'now' ? `<circle class="ping" r="5" fill="none" stroke="${DC[st]}"/>` : '') +
+    `<circle r="5" fill="${SP.navy}" stroke="${DC[st]}" stroke-opacity="${0.85 * o}"/>` +
+    `<circle${st === 'now' ? ' class="live"' : ''} r="1.7" fill="${DC[st]}" fill-opacity="${0.9 * o}"/></g>`
   )
 }
 
@@ -475,7 +481,9 @@ const link = (id: string, x1: number, x2: number, y: number, a: string, b: strin
   )
 }
 
-const STREAM = '.hot{animation:st .42s linear infinite}@keyframes st{to{stroke-dashoffset:-6}}'
+const STREAM =
+  '.hot{animation:st .42s linear infinite}@keyframes st{to{stroke-dashoffset:-6}}' +
+  '.ping{transform-box:fill-box;transform-origin:center;animation:pg 1.6s ease-out infinite}@keyframes pg{from{transform:scale(1);opacity:.7}to{transform:scale(2.1);opacity:0}}'
 
 type Node = { st: string; w: number; draw: (x: number) => string }
 
@@ -497,11 +505,23 @@ const chain = (nodes: Node[], x0: number, y: number, room: number, prefix: strin
   return out.join('')
 }
 
-// The two path rows: the phases, then the current phase's substates and the flag's note.
+const PATH_HEIGHT = 58
+const UNREPORTED_HEIGHT = 30
+
+// The two path rows: the phases reached so far, then the current phase's substates and the flag's note. A task the
+// board reports no phase for gets one line saying so, never a guessed phase.
 const pathRows = (t: HeldTask, W: number) => {
   const { phase, at, isFinal, flag, why } = pathOf(t)
   const room = W - 24
-  const phases = PHASES.map(([, name, subs], i): Node => {
+  if (phase < 0) {
+    const said = fit(['Delivery phase not reported by the board', why].filter(Boolean).join(' · '), 11.5, room)
+
+    return {
+      h: UNREPORTED_HEIGHT,
+      body: `<text x="12" y="19" font-family="${FONT}" font-size="11.5" fill="${flag === 'bad' ? SP.failText : flag === 'hold' ? SP.holdText : SP.slate}">${xml(said)}</text>`,
+    }
+  }
+  const phases = PHASES.slice(0, isFinal ? PHASES.length : phase + 1).map(([, name, subs], i): Node => {
     const st = flag && i === phase ? flag : i < phase || isFinal ? 'done' : i === phase ? 'now' : ''
     const n = `${i < phase || isFinal ? subs.length : i === phase ? at : 0}/${subs.length}`
     const nameW = Math.ceil(width(name, 12, false, 600))
@@ -530,14 +550,19 @@ const pathRows = (t: HeldTask, W: number) => {
   const noteW = note ? Math.ceil(width(note, 11)) + 12 : 0
   const noteColor = flag === 'bad' ? SP.failText : SP.holdText
 
-  return (
-    chain(phases, 12, 16, room, 'lp') +
-    chain(steps, 12, 39, Math.min(room - noteW, stepsW + 240), 'ls') +
-    (note
-      ? `<text x="${12 + Math.min(room - noteW, stepsW + 240) + 12}" y="${43}" font-family="${FONT}" font-size="11" fill="${noteColor}">${xml(note)}</text>`
-      : '')
-  )
+  return {
+    h: PATH_HEIGHT,
+    body:
+      chain(phases, 12, 16, Math.min(room, phaseRoom(phases)), 'lp') +
+      chain(steps, 12, 39, Math.min(room - noteW, stepsW + 240), 'ls') +
+      (note
+        ? `<text x="${12 + Math.min(room - noteW, stepsW + 240) + 12}" y="${43}" font-family="${FONT}" font-size="11" fill="${noteColor}">${xml(note)}</text>`
+        : ''),
+  }
 }
+
+// The phases reached sit 120px apart rather than spreading across the band.
+const phaseRoom = (phases: Node[]) => phases.reduce((sum, n) => sum + n.w, 0) + (phases.length - 1) * 120
 
 // What a pull request's facts say, as chips (its number is the band's native link): its checks, its open threads and how far it is behind main.
 const prChips = (pr: NonNullable<HeldTask['pull']>) => {
@@ -616,8 +641,9 @@ export const bandBodySvg = (t: HeldTask | null, s: Stats, W: number) => {
   const parts: string[] = []
   let y = 0
   if (t) {
-    parts.push(pathRows(t, W))
-    y = 58
+    const path = pathRows(t, W)
+    parts.push(path.body)
+    y = path.h
     if (t.pull) {
       const pr = strip(y, W, prChips(t.pull), 8)
       parts.push(pr.body)

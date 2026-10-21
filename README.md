@@ -20,9 +20,10 @@ navy root, with native buttons (the task ID, lane fold arrows, Start session, Mo
 
 Above the prompt an always-on band draws the held task: its lane, ID, title and bar, the delivery phases and substates
 the board serves, the pull request's checks, threads and freshness, and the session's cost, turns and tokens. On Desktop
-its head row carries native controls over the drawing: the pull request number as a link to the PR, Copy, Board (opens
-the Board pane) and a fold arrow that collapses the band to its head row. A step orb animates only while that step is
-live. With no held task it stays on and says so; it has no hide button.
+its head row carries two native controls over the drawing: the pull request number as a link to the PR and a fold arrow
+that collapses the band to its head row. The band draws only the phases the task has reached; the running step's orb
+pulses and a link streams into it, under no-preference motion only. A task the board reports no phase for says so
+rather than guessing one. With no held task it stays on and says so; it has no hide button.
 
 ## Themes
 

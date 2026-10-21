@@ -119,10 +119,10 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 // A drawing's pixel width from the surface's columns; a dock not yet measured has none, so it takes the narrowest.
 const pxWidth = (columns: number, lo: number, hi: number) => (Number.isFinite(columns) && columns > 0 ? clamp(Math.floor(columns * CELL_PX), lo, hi) : lo)
 
-// Pixels a monospace cell takes on the remote surfaces; the room the band's PR link and Copy, Board and fold buttons take
+// Pixels a monospace cell takes on the remote surfaces; the room the band's PR link and fold button take
 // over its head drawing; and the room a Board row's lane dot and ID button take beside its lean row.
 const CELL_PX = 7.5
-const TOOLS_PX = 230
+const TOOLS_PX = 96
 const ID_PX = 124
 
 type Terminal = ElementTable<'terminal'>
@@ -330,7 +330,7 @@ export const register: Register = (on, options) => {
       const opened = await read($, openTask)
 
       return (
-        <Box flexDirection="column">
+        <Box key="band" flexDirection="column">
           {found.map(t => {
             const label = opened === t.id ? 'Close' : 'Details'
 
@@ -343,12 +343,7 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
-          <Box flexDirection="row" alignItems="center" gap={2}>
-            {!found.length && <Text color={SP.slate}>No task held</Text>}
-            <Button key="kanban" label="Board" plain onPress={() => openBoard($)}>
-              <Text color={SP.agent}>{`${g('board')} Board`}</Text>
-            </Button>
-          </Box>
+          {!found.length && <Text color={SP.slate}>No task held</Text>}
         </Box>
       )
     }
@@ -356,8 +351,6 @@ export const register: Register = (on, options) => {
     const s = await read($, stats)
     const mini = await read($, isMini)
     const W = pxWidth(e.props.bodyColumns, 420, 1100)
-    const url = t ? await pageOf($, t.id) : ''
-    const copy = t ? `[${t.id}](${url}) ${t.title}` : ''
     const body = mini ? null : bandBodySvg(t, s, W)
     const said = `cost ${money(s.cost)}, tokens ${kfmt(s.tokens)}, turns ${s.turns}`
 
@@ -370,6 +363,7 @@ export const register: Register = (on, options) => {
             alt={t ? `${alt(t)}. ${said}` : `No task held. ${said}`}
             width={W}
             height={BAND_HEIGHT}
+            isInteractive
           />
           <Box key="tools" position="absolute" top={0} right={1} flexDirection="row" alignItems="center" gap="xs">
             {t?.pull && (
@@ -377,12 +371,10 @@ export const register: Register = (on, options) => {
                 <Link href={`https://github.com/${t.pull.repo}/pull/${t.pull.number}`} label={`#${t.pull.number}`} />
               </Text>
             )}
-            {t && <Button key="copy" label="Copy" onPress={press => $.ui.copy({ text: copy, surface: press.surface })} />}
-            <Button key="kanban" label="Board" variant="primary" onPress={() => openBoard($)} />
             <Button key="fold" label={mini ? '▴' : '▾'} onPress={() => update($, isMini, x => !x)} />
           </Box>
         </Box>
-        {body && <Svg source={body.source} alt={t ? `Delivery path of ${t.id}, its pull request and the session's stats` : said} width={W} height={body.height} />}
+        {body && <Svg source={body.source} alt={t ? `Delivery path of ${t.id}, its pull request and the session's stats` : said} width={W} height={body.height} isInteractive />}
       </Box>
     )
   })
@@ -481,15 +473,25 @@ export const register: Register = (on, options) => {
 
                   return (
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
-                      <Button key={`lane:${l.state}`} label={`${laneName} ${count}`} plain onPress={() => fold(l.state)}>
-                        <Text color={SP.faint}>{isFolded ? '›' : '⌄'}</Text>
-                        {' '}
+                      {/* A desktop draws any Button as a native one sized to its label, so the lane head is a full-width row
+                          with only its fold arrow a button: folded lanes then stack as even rows. */}
+                      <Box
+                        key={`head-${l.state}`}
+                        flexDirection="row"
+                        alignItems="center"
+                        gap={1}
+                        paddingX={1}
+                        borderStyle="round"
+                        borderColor={`${color}33`}
+                        backgroundColor={SP.stack}
+                      >
+                        <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
                           {laneName.toUpperCase()}
                         </Text>
-                        {' '}
+                        <Box flexGrow={1} />
                         <Text color={SP.muted}>{count}</Text>
-                      </Button>
+                      </Box>
                       {!isFolded &&
                         l.tasks.map(t => (
                           <Box
