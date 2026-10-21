@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask } from '../types'
-import { CHECKS, LANES as LANE_STYLES, ROW_HEIGHT, SP, alt, glyphs, laneHeaderSvg, laneIcon, laneOf, paneSvg, progress, ratio, rowSvg, subline, termBar } from './draw'
+import { CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, ROW_HEIGHT, SP, alt, currentSvg, glyphs, laneHeaderSvg, leanRowSvg, laneIcon, laneOf, paneSvg, progress, ratio, rowSvg, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, readLanes, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -13,7 +13,7 @@ const tasks = atom({ plugin: 'starpulse-board', key: 'tasks' } as const, null)
 const isHidden = atom({ plugin: 'starpulse-board', key: 'isHidden' } as const, false)
 const openTask = atom({ plugin: 'starpulse-board', key: 'openTask' } as const, null)
 const lanes = atom({ plugin: 'starpulse-board', key: 'lanes' } as const, null)
-const folded = atom({ plugin: 'starpulse-board', key: 'folded' } as const, ['ready', 'waiting'])
+const folded = atom({ plugin: 'starpulse-board', key: 'folded' } as const, ['ready', 'waiting', 'done'])
 const pickedTask = atom({ plugin: 'starpulse-board', key: 'pickedTask' } as const, null)
 
 // The tasks this session last claimed, from the StarPulse server `starpulse board` reads; null when it cannot be read.
@@ -63,7 +63,8 @@ const followLanes = async ($: Engine) => {
   const { argv, input } = await streamOf($, `/api/lanes?${LANES.map(state => `state=${state}`).join('&')}`)
   const onFrame = async (event: string, data: string) => {
     if (event === 'lanes') {
-      await update($, lanes, () => openLanes(JSON.parse(data) as Board))
+      const now = await $.clock.now()
+      await update($, lanes, () => openLanes(JSON.parse(data) as Board, now))
     }
   }
   if (!run.isStopped) {
@@ -120,7 +121,8 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const CELL_PX = 7.5
 const BUTTONS_PX = 100
 // The room the Expand/Collapse and Details buttons take beside a Board card.
-const FOLD_PX = 96
+const FOLD_PX = 48
+const ID_PX = 112
 
 type Terminal = ElementTable<'terminal'>
 // Every surface but the terminal draws the Svg; the desktop's table stands for them (Box, Text and Button are the same).
@@ -385,6 +387,7 @@ export const register: Register = (on, options) => {
     const found = await read($, lanes)
     const shut = await read($, folded)
     const picked = await read($, pickedTask)
+    const mine = await read($, tasks)
     const { Box, Button, Text, Svg } = $.ui.resolve(e) as Remote
     if (e.surface !== 'terminal') {
       // The desktop's pane takes the page's own background: no fill, no key hints, drawings for the dividers and chips.
@@ -398,25 +401,31 @@ export const register: Register = (on, options) => {
       }
       const open = found.reduce((sum, l) => sum + l.tasks.length, 0)
       const fold = (state: string) => update($, folded, f => (f.includes(state) ? f.filter(x => x !== state) : [...f, state]))
+      // This session's task has its own card, so its lane row goes and a lane it empties is hidden.
+      const current = mine?.[0] ?? null
+      const lanesShown = found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) })).filter(l => l.tasks.length)
+      const card = current ? currentSvg(current, width) : null
 
       return (
         <Box key="board" flexDirection="column" gap={1}>
           <Box flexDirection="row" alignItems="center" gap={1}>
-            <Text bold>Board</Text>
-            <Text dimColor>{`${open} open`}</Text>
+            <Text bold color={SP.slate}>BOARD</Text>
+            <Text color={SP.ok}>●</Text>
+            <Text dimColor>{`${open} ${open === 1 ? 'task' : 'tasks'} · live`}</Text>
             <Box flexGrow={1} />
             <Button key="refresh" label="Refresh" onPress={() => reloadLanes($)} />
           </Box>
-          {found.map(l => {
+          {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} />}
+          {lanesShown.map(l => {
             const isFolded = shut.includes(l.state)
             const [laneName, color] = LANE_STYLES[l.state] ?? [l.name, SP.slate]
-            const header = laneHeaderSvg(laneName, color, l.tasks.length, isFolded, width - FOLD_PX)
+            const header = laneHeaderSvg(laneName, color, l.tasks.length, width - FOLD_PX, l.state === 'done' ? 'last 24h' : '')
 
             return (
               <Box key={`lane-${l.state}`} flexDirection="column" gap={1}>
                 <Box flexDirection="row" alignItems="center" gap={1}>
+                  <Button key={`lane:${l.state}`} label={isFolded ? '▸' : '▾'} onPress={() => fold(l.state)} />
                   <Svg source={header.source} alt={`${l.name}, ${l.tasks.length}`} width={width - FOLD_PX} height={header.height} />
-                  <Button key={`lane:${l.state}`} label={isFolded ? 'Expand' : 'Collapse'} onPress={() => fold(l.state)} />
                 </Box>
                 {!isFolded &&
                   l.tasks.map(t => {
@@ -427,8 +436,8 @@ export const register: Register = (on, options) => {
                     return (
                       <Box key={`row-${t.id}`} flexDirection="column" gap={1}>
                         <Box flexDirection="row" alignItems="center" gap={1}>
-                          <Svg source={rowSvg(t, width - FOLD_PX, isPicked)} alt={alt(t)} width={width - FOLD_PX} height={ROW_HEIGHT} />
-                          <Button key={`task:${t.id}`} label={isPicked ? 'Close' : 'Details'} onPress={() => update($, pickedTask, x => (x === t.id ? null : t.id))} />
+                          <Button key={`task:${t.id}`} label={t.id} onPress={() => update($, pickedTask, x => (x === t.id ? null : t.id))} />
+                          <Svg source={leanRowSvg(t, width - ID_PX, isPicked)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
                         </Box>
                         {detail && (
                           <Box key={`detail-${t.id}`} flexDirection="column" gap={1}>
@@ -453,9 +462,9 @@ export const register: Register = (on, options) => {
       )
     }
     // The dock paints grey behind every cell a pane draws, and a pane body scrolls its tree, so flexGrow has no height to fill:
-    // the root takes the body's rows and fills them black, and a longer Board still scrolls.
+    // the root takes the body's rows and fills them navy, and a longer Board still scrolls.
     const fill = (children: RenderChildren) => (
-      <Box key="board-fill" flexDirection="column" minHeight={e.props.scroll.bodyRows} backgroundColor={SP.black}>
+      <Box key="board-fill" flexDirection="column" minHeight={e.props.scroll.bodyRows} backgroundColor={SP.navy}>
         {children}
       </Box>
     )
