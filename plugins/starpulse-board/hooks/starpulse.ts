@@ -12,6 +12,7 @@ export type RawTask = {
   criteria?: { text: string; checked?: boolean }[]
   pause_reason?: string
   prs?: { url: string; number?: number; checks?: string; merged?: boolean }[]
+  done_at?: string
 }
 export type Board = { columns: { state: string; name: string; tasks: RawTask[] }[] }
 
@@ -68,11 +69,20 @@ export async function readBoard($: Engine, filters: string[]): Promise<Board | n
 }
 
 
-// The Board tab's lanes, in the order work moves through them; New, Done and Archived stay off it.
-export const LANES = ['in_progress', 'review', 'needs_attention', 'ready', 'waiting']
+// The Board tab's lanes, in the order work moves through them; New and Archived stay off it.
+export const LANES = ['ready', 'waiting', 'in_progress', 'review', 'needs_attention', 'done']
 
-// The open lanes of a Board, each task with the columns it may move to; empty when there is no Board.
-export const openLanes = (board: Board | null): Lane[] => {
+// A Done task leaves the Board tab this long after it reached Done.
+export const DONE_WINDOW_MS = 24 * 3_600_000
+
+// A Done task with no `done_at` (an older starpulse) stays: the lane is folded to its count.
+const isRecent = (t: RawTask, state: string, now: number) => {
+  const doneAt = Date.parse(t.done_at ?? '')
+  return state !== 'done' || Number.isNaN(doneAt) || now - doneAt <= DONE_WINDOW_MS
+}
+
+// The lanes of a Board that hold a task, each task with the columns it may move to; empty when there is no Board.
+export const openLanes = (board: Board | null, now = 0): Lane[] => {
   const columns = board?.columns ?? []
   const names = new Map(columns.map(c => [c.state, c.name]))
   const task = (t: RawTask, c: Board['columns'][number]): BoardTask => ({
@@ -83,13 +93,20 @@ export const openLanes = (board: Board | null): Lane[] => {
       .filter(([, m]) => (m as { allowed?: boolean } | null)?.allowed !== false)
       .map(([to]) => ({ to, name: names.get(to) ?? to })),
   })
+  const lane = (c: Board['columns'][number]): Lane => ({
+    state: c.state,
+    name: c.name,
+    tasks: c.tasks.filter(t => isRecent(t, c.state, now)).map(t => task(t, c)),
+  })
 
-  return LANES.flatMap(state => columns.filter(c => c.state === state)).map(c => ({ state: c.state, name: c.name, tasks: c.tasks.map(t => task(t, c)) }))
+  return LANES.flatMap(state => columns.filter(c => c.state === state))
+    .map(lane)
+    .filter(l => l.tasks.length > 0)
 }
 
 // The open lanes of the whole Board, read once; empty when the Board cannot be read.
 export async function readLanes($: Engine): Promise<Lane[]> {
-  return openLanes(await readBoard($, []))
+  return openLanes(await readBoard($, []), await $.clock.now())
 }
 
 // Waits before starting a child that ended again: a second after one that printed, doubling to half a minute while none does.
