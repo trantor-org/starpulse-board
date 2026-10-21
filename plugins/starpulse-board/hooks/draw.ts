@@ -465,9 +465,9 @@ const orb = (cx: number, cy: number, size: number, st: string) => {
   )
 }
 
-// A DAG link: dashed, from one step's colour to the next, streaming while either end runs.
+// A DAG link: dashed, from one step's colour to the next, streaming only into the step that runs.
 const link = (id: string, x1: number, x2: number, y: number, a: string, b: string) => {
-  const isHot = a === 'now' || b === 'now'
+  const isHot = b === 'now'
 
   return (
     `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x1}" x2="${x2}" y1="0" y2="0"><stop offset="0" stop-color="${DC[a]}"/><stop offset="1" stop-color="${DC[b]}"/></linearGradient>` +
@@ -539,10 +539,9 @@ const pathRows = (t: HeldTask, W: number) => {
   )
 }
 
-// What a pull request's facts say, as chips: its number, its checks, its open threads and how far it is behind main.
+// What a pull request's facts say, as chips (its number is the band's native link): its checks, its open threads and how far it is behind main.
 const prChips = (pr: NonNullable<HeldTask['pull']>) => {
-  const chips = [chip(`#${pr.number}`, prColor(pr.checks), true)]
-  chips.push(pr.checks === 'none' ? chip('checks not started', SP.slate) : chip(CHECKS[pr.checks].phrase, CHECKS[pr.checks].color))
+  const chips = [pr.checks === 'none' ? chip('checks not started', SP.slate) : chip(CHECKS[pr.checks].phrase, CHECKS[pr.checks].color)]
   if (pr.threads !== null) {
     chips.push(pr.threads ? chip(`${pr.threads} open ${pr.threads === 1 ? 'thread' : 'threads'}`, SP.run) : chip('no open threads', SP.ok))
   }
@@ -570,10 +569,10 @@ const strip = (y: number, W: number, pieces: Piece[], gapX: number) => {
 export const BAND_HEIGHT = 34
 
 /**
- * The band's first line, drawn left of its native tools: the held task's lane dot, ID, title and AC bar, or the line that
+ * The band's first line, its native tools laid over its right `tools` pixels: the held task's lane dot, ID, title and AC bar, or the line that
  * says no task is held. The band's own Box draws the frame, so this draws none.
  */
-export const bandHeadSvg = (t: HeldTask | null, W: number) => {
+export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
   const H = BAND_HEIGHT
   const mid = H / 2
   if (!t) {
@@ -581,7 +580,7 @@ export const bandHeadSvg = (t: HeldTask | null, W: number) => {
       W,
       H,
       false,
-      `<text x="10" y="${mid + 4.5}" font-family="${FONT}" font-size="13" fill="${SP.slate}">${xml(fit('No task held — the band fills once this session claims one.', 13, W - 20))}</text>`,
+      `<text x="10" y="${mid + 4.5}" font-family="${FONT}" font-size="13" fill="${SP.slate}">${xml(fit('No task held — the band fills once this session claims one.', 13, W - 20 - tools))}</text>`,
     )
   }
   const [, color] = laneOf(t)
@@ -589,7 +588,7 @@ export const bandHeadSvg = (t: HeldTask | null, W: number) => {
   const isLive = t.lane === 'in_progress'
   const idW = Math.ceil(width(t.id, 12, true))
   const barW = p ? (p.k === null ? Math.ceil(width(ratio(p), 11)) : 120) : 0
-  const barX = W - 10 - barW
+  const barX = W - tools - 10 - barW
   const left = 24 + idW + 10
   const bar = !p
     ? ''
@@ -633,18 +632,17 @@ export const bandBodySvg = (t: HeldTask | null, s: Stats, W: number) => {
   return { height: y, source: svg(W, y, false, parts.join(''), STREAM) }
 }
 
-/** The band folded to one line: tests chip, cost, turns, the task's chip and its PR's, left of the native tools. */
-export const miniSvg = (t: HeldTask | null, s: Stats, W: number) => {
+/** The band folded to one line: tests chip, cost, turns and the task's chip, its native tools over the right `tools` pixels. */
+export const miniSvg = (t: HeldTask | null, s: Stats, W: number, tools = 0) => {
   const tests = t ? testsOf(t) : null
   const pieces = [
     ...(tests ? [chip(tests.text, tests.color)] : []),
     stat('', money(s.cost)),
     stat('turns', String(s.turns)),
     t ? chip(`${t.id} · ${laneOf(t)[0]}`, laneOf(t)[1], true) : chip('no task held', SP.slate),
-    ...(t?.pull ? [chip(`#${t.pull.number}`, prColor(t.pull.checks), true)] : []),
   ]
 
-  return svg(W, BAND_HEIGHT, false, `<g transform="translate(10,8)">${line(pieces, W - 20, 10)}</g>`)
+  return svg(W, BAND_HEIGHT, false, `<g transform="translate(10,8)">${line(pieces, W - 20 - tools, 10)}</g>`)
 }
 
 export const LEAN_HEIGHT = 26
