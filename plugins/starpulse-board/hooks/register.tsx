@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_WIDTH, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanLabel, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -13,6 +13,9 @@ const tasks = atom({ plugin: 'starpulse-board', key: 'tasks' } as const, null)
 const openTask = atom({ plugin: 'starpulse-board', key: 'openTask' } as const, null)
 const lanes = atom({ plugin: 'starpulse-board', key: 'lanes' } as const, null)
 const folded = atom({ plugin: 'starpulse-board', key: 'folded' } as const, ['ready', 'waiting', 'done'])
+// A lane shows this many rows until it is expanded.
+const LANE_PAGE = 6
+const expanded = atom({ plugin: 'starpulse-board', key: 'expanded' } as const, [])
 const pickedTask = atom({ plugin: 'starpulse-board', key: 'pickedTask' } as const, null)
 const stats = atom({ plugin: 'starpulse-board', key: 'stats' } as const, NO_STATS)
 const isMini = atom({ plugin: 'starpulse-board', key: 'isMini' } as const, false)
@@ -120,12 +123,12 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const pxWidth = (columns: number, lo: number, hi: number) => (Number.isFinite(columns) && columns > 0 ? clamp(Math.floor(columns * CELL_PX), lo, hi) : lo)
 
 // Pixels a monospace cell takes on the remote surfaces; the room the band's PR link and fold button take
-// over its head drawing; and the room a Board row's lane dot and ID button take beside its lean row.
+// over its head drawing; and the room a Board row's ID button takes beside its lean row, which a spacer pads so every row's
+// drawing, and so its bar, starts at one x.
 const CELL_PX = 7.5
 const TOOLS_PX = 96
 // Folded, the tools also carry the cost and turns.
 const MINI_TOOLS_PX = 230
-const ID_PX = 124
 
 type Terminal = ElementTable<'terminal'>
 // Every surface but the terminal draws the Svg; the desktop's table stands for them (Box, Text and Button are the same).
@@ -386,7 +389,7 @@ export const register: Register = (on, options) => {
 
     return (
       <Box key="band-wrap" flexDirection="column">
-      <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.ready}33`} backgroundColor={SP.stack} overflow="hidden">
+      <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.edge}2e`} backgroundColor={SP.stack} overflow="hidden">
         {/* The head spans the band and its tools sit over its right edge, as skins lays buttons over its art. */}
         <Box key="head" position="relative">
           <Svg
@@ -451,6 +454,7 @@ export const register: Register = (on, options) => {
           void followLanes($)
           const found = await read($, lanes)
           const shut = await read($, folded)
+          const shown = await read($, expanded)
           const picked = await read($, pickedTask)
           const mine = await read($, tasks)
           const { Box, Button, Text, Svg } = $.ui.resolve(e) as Remote
@@ -491,6 +495,7 @@ export const register: Register = (on, options) => {
             }
             const open = found.reduce((sum, l) => sum + l.tasks.length, 0)
             const fold = (state: string) => update($, folded, f => (f.includes(state) ? f.filter(x => x !== state) : [...f, state]))
+            const expand = (state: string) => update($, expanded, x => (x.includes(state) ? x.filter(y => y !== state) : [...x, state]))
             // This session's task has its own card, so its lane row goes and a lane it empties is hidden.
             const current = mine?.[0] ?? null
             const lanesShown = found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) })).filter(l => l.tasks.length)
@@ -504,16 +509,21 @@ export const register: Register = (on, options) => {
                   <Box flexGrow={1} />
                   <Text color={SP.muted}>{`${open} ${open === 1 ? 'task' : 'tasks'} · live`}</Text>
                 </Box>
-                {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} />}
+                {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} isInteractive />}
                 {lanesShown.map(l => {
                   const isFolded = shut.includes(l.state)
                   const [laneName, color] = LANE_STYLES[l.state] ?? [l.name, SP.slate]
                   const count = `${l.tasks.length}${l.state === 'done' ? ' · last 24h' : ''}`
+                  // A busy lane draws its first rows only, so the pane stays short and few bars animate, until "Show N more".
+                  const isWhole = shown.includes(l.state)
+                  const rest = l.tasks.length - LANE_PAGE
+                  const rows = isWhole || rest <= 0 ? l.tasks : l.tasks.slice(0, LANE_PAGE)
 
                   return (
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
                       {/* A desktop draws any Button as a native one sized to its label, so the lane head is a flat full-width
-                          row with only its fold arrow a button; its tasks share one rounded card rather than a box apiece. */}
+                          row with only its fold arrow a button; its tasks share one silver-edged card, each row one plain button
+                          (small ID, title) beside a fixed-width bar, so every bar starts at one x. */}
                       <Box key={`head-${l.state}`} flexDirection="row" alignItems="center" gap={1} paddingX={1}>
                         <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
@@ -528,17 +538,27 @@ export const register: Register = (on, options) => {
                           flexDirection="column"
                           paddingX={1}
                           borderStyle="round"
-                          borderColor={`${color}26`}
-                          backgroundColor={SP.stack}
-                          hover={{ borderColor: `${color}66` }}
+                          borderColor={`${SP.edge}2e`}
+                          hover={{ borderColor: `${SP.edge}55` }}
                         >
-                          {l.tasks.map(t => (
-                            <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
-                              <Text color={color}>●</Text>
-                              <Button key={`task:${t.id}`} label={t.id} plain onPress={() => update($, pickedTask, () => t.id)} />
-                              <Svg source={leanRowSvg(t, width - ID_PX)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
-                            </Box>
-                          ))}
+                          {rows.map(t => {
+                            const lbl = leanLabel(t, width)
+                            return (
+                              <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
+                                <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
+                                  <Text size="caption" mono color={SP.muted}>
+                                    {t.id}
+                                  </Text>{' '}
+                                  <Text color={lbl.color}>{lbl.title}</Text>
+                                </Button>
+                                <Box flexGrow={1} />
+                                <Svg source={leanRowSvg(t)} alt={alt(t)} width={LEAN_WIDTH} height={LEAN_HEIGHT} />
+                              </Box>
+                            )
+                          })}
+                          {rest > 0 && (
+                            <Button key={`more:${l.state}`} label={isWhole ? 'Show fewer' : `Show ${rest} more`} plain onPress={() => expand(l.state)} />
+                          )}
                         </Box>
                       )}
                     </Box>

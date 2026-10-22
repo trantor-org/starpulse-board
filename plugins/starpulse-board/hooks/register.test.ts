@@ -1036,10 +1036,11 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   expect(seen).not.toContain('[')
   expect(seen).not.toContain('✕')
   expect((await ui.findAll({})).filter((el: any) => el.props.backgroundColor).map((el: any) => el.props.backgroundColor)).toEqual(['#30302e'])
+  expect((await ui.find({ key: 'band' }))?.props.borderColor, 'a silver outline, not a lane tint').toMatch(/^#d4d2c8[0-9a-f]{2}$/)
   await ui.unmount()
 })
 
-test('desktop Board tab: a text header and flat lane headers, lean row drawings on one stack card per lane, no rules, hints or icon font', async ($, on) => {
+test('desktop Board tab: a text header and flat lane headers, lean row drawings on one bordered card per lane, no rules, hints or icon font', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const seen = (await everyText(ui)).join('|')
@@ -1050,8 +1051,11 @@ test('desktop Board tab: a text header and flat lane headers, lean row drawings 
   expect(seen).toContain('BOARD')
   expect(seen).toContain('3 tasks · live')
   expect(seen).toContain('IN PROGRESS')
-  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor)).toBe('#30302e')
+  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor), 'the lane card shows the chat grey').toBeUndefined()
   expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.borderStyle), 'a row has no box of its own').toBeUndefined()
+  const edge = /^#d4d2c8[0-9a-f]{2}$/
+  const lane = (await ui.find({ key: 'rows-in_progress' })) as any
+  expect(lane?.props.borderColor, 'the lane card has a silver outline').toMatch(edge)
   const buttons = await everyButton(ui)
   expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready', 'task:TASK-7']))
   expect(buttons.map(b => b.key)).not.toContain('refresh')
@@ -1060,15 +1064,20 @@ test('desktop Board tab: a text header and flat lane headers, lean row drawings 
   await ui.unmount()
 })
 
-test('desktop Board tab: a row is lean: its ID is the button, with no Details, Close or status pill', async ($, on) => {
+test('desktop Board tab: the whole row is one plain button, a small ID and the title, with no Details, Close or status pill', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
 
   const buttons = await everyButton(ui)
   expect(buttons.map(b => String(b.props.label))).not.toContain('Details')
   expect(buttons.map(b => String(b.props.label))).not.toContain('Close')
-  expect((await ui.find({ key: 'task:TASK-7' }))?.props.label).toBe('TASK-7')
+  const pick = (await ui.find({ key: 'task:TASK-7' })) as any
+  expect(pick?.props).toMatchObject({ label: 'TASK-7 Busy one', plain: true })
+  const [id, title] = pick.children.filter((c: any) => typeof c === 'object')
+  expect(id.props, 'the ID is drawn small').toMatchObject({ size: 'caption', mono: true })
+  expect(id.children.join('')).toBe('TASK-7')
+  expect(title.children.join('')).toContain('Busy one')
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
-  expect(row.props.source).toContain('Busy one')
+  expect(row.props.source, 'the title lives in the button, not the bar').not.toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
   expect(row.props.height).toBe(26)
   await ui.unmount()
@@ -1094,7 +1103,7 @@ test('desktop Board tab: the lane buttons are arrows that fold, and Ready starts
   expect(await glyph('ready')).toBe('›')
   expect(await glyph('in_progress')).toBe('⌄')
   await ui.press({ key: 'lane:ready' })
-  expect((await ui.find({ key: 'task:TASK-10' }))?.props.label).toBe('TASK-10')
+  expect((await ui.find({ key: 'task:TASK-10' }))?.props.label).toBe('TASK-10 Ready one')
   expect(await glyph('ready')).toBe('⌄')
   await ui.unmount()
 })
@@ -1129,6 +1138,7 @@ test('desktop Board tab: a Current task card draws this session\'s held task and
   expect(card.props.source).toContain('Busy one')
   expect(card.props.source).toContain('Criterion 1')
   expect(card.props.source).toContain('checks running')
+  expect(card.props.source, 'a silver outline, not the lane colour').toContain('stroke="#d4d2c8"')
   expect(await ui.find({ key: 'task:TASK-7' }), 'not repeated as a row').toBeUndefined()
   expect(await ui.find({ key: 'lane:in_progress' }), 'its lane is empty now, so hidden').toBeUndefined()
   expect(await ui.find({ key: 'lane:ready' })).toBeDefined()
@@ -1162,6 +1172,58 @@ test('desktop Board tab: a bar ends in a round cap, not a square tail', async ($
 
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
   expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12" rx="6"\/>/)
+  await ui.unmount()
+})
+
+test("desktop Board tab: every row's bar starts at one x, PR or not, whatever the ID", async ($, on) => {
+  const frame = board([
+    [
+      'in_progress',
+      'In Progress',
+      [
+        task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2' }),
+        task({ id: 'TASK-1234', title: 'A much longer title that has to be fitted before the bar', assignee: 'session-3', prs: [] }),
+      ],
+    ],
+    ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed one', criteria: CRITERIA.map(c => ({ ...c, checked: true })) })]],
+  ])
+  const ui = await openKanban($, on, { frame }, 'desktop')
+
+  const rows = (await ui.findAll({ type: 'Svg' })).filter((s: any) => /^TASK-\d+:/.test(s.props.alt)) as any[]
+  const starts = rows.map(r => /<g transform="translate\(([\d.]+),[\d.]+\)"><clipPath/.exec(r.props.source)?.[1]).filter(Boolean)
+  expect(starts.length).toBeGreaterThan(1)
+  expect(new Set(starts).size).toBe(1)
+  expect(new Set(rows.map(r => r.props.width)).size, 'one drawing width').toBe(1)
+  await ui.unmount()
+})
+
+test('desktop Board tab: a busy lane shows its first six rows until Show N more, and the live bar twinkles', async ($, on) => {
+  const many = Array.from({ length: 8 }, (_, i) => task({ id: `TASK-2${i}`, title: `Busy ${i}`, assignee: `session-${i}` }))
+  const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', many]]) }, 'desktop')
+
+  const taskKeys = async () => (await everyButton(ui)).map(b => String(b.key)).filter(k => k.startsWith('task:'))
+  expect(await taskKeys()).toHaveLength(6)
+  expect((await ui.find({ key: 'more:in_progress' }))?.props.label).toBe('Show 2 more')
+  const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-20:')) as any
+  expect(row.props.source, 'an In Progress bar twinkles').toContain('@keyframes tw')
+  await ui.press({ key: 'more:in_progress' })
+  expect(await taskKeys()).toHaveLength(8)
+  expect((await ui.find({ key: 'more:in_progress' }))?.props.label).toBe('Show fewer')
+  await ui.unmount()
+})
+
+test('desktop Board tab: a lane lists its most recently active task first, the undated last in board order', async ($, on) => {
+  const pr = (updatedAt: string) => [{ url: `${PULL}/392`, number: 392, checks: 'pending', updatedAt }]
+  const tasks = [
+    task({ id: 'TASK-31', title: 'Undated one', prs: [] }),
+    task({ id: 'TASK-32', title: 'Older one', prs: pr('2026-10-20T08:00:00Z') }),
+    task({ id: 'TASK-33', title: 'Undated two', prs: [] }),
+    task({ id: 'TASK-34', title: 'Newest one', prs: [...pr('2026-10-19T08:00:00Z'), ...pr('2026-10-21T08:00:00Z')] }),
+  ]
+  const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', tasks]]) }, 'desktop')
+
+  const taskKeys = (await everyButton(ui)).map(b => String(b.key)).filter(k => k.startsWith('task:'))
+  expect(taskKeys).toEqual(['task:TASK-34', 'task:TASK-32', 'task:TASK-31', 'task:TASK-33'])
   await ui.unmount()
 })
 

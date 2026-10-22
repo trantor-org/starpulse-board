@@ -13,7 +13,7 @@ export type RawTask = {
   pause_reason?: string
   phase?: string | null
   substate?: string | null
-  prs?: { url: string; number?: number; checks?: string; merged?: boolean; threads?: number | null; behind_main?: number | null }[]
+  prs?: { url: string; number?: number; checks?: string; merged?: boolean; threads?: number | null; behind_main?: number | null; updatedAt?: string }[]
   done_at?: string
 }
 export type Board = { columns: { state: string; name: string; tasks: RawTask[] }[] }
@@ -85,6 +85,10 @@ const isRecent = (t: RawTask, state: string, now: number) => {
   return state !== 'done' || Number.isNaN(doneAt) || now - doneAt <= DONE_WINDOW_MS
 }
 
+// When a task last moved: its newest PR update or its Done time; 0 when it carries neither.
+const activeAt = (t: RawTask) =>
+  Math.max(0, ...[t.done_at, ...(t.prs ?? []).map(p => p.updatedAt)].map(at => Date.parse(at ?? '')).filter(at => !Number.isNaN(at)))
+
 // The lanes of a Board that hold a task, each task with the columns it may move to; empty when there is no Board.
 export const openLanes = (board: Board | null, now = 0): Lane[] => {
   const columns = board?.columns ?? []
@@ -100,7 +104,11 @@ export const openLanes = (board: Board | null, now = 0): Lane[] => {
   const lane = (c: Board['columns'][number]): Lane => ({
     state: c.state,
     name: c.name,
-    tasks: c.tasks.filter(t => isRecent(t, c.state, now)).map(t => task(t, c)),
+    // Most recently active first; a stable sort keeps StarPulse's order among ties and the undated.
+    tasks: c.tasks
+      .filter(t => isRecent(t, c.state, now))
+      .sort((a, b) => activeAt(b) - activeAt(a))
+      .map(t => task(t, c)),
   })
 
   return LANES.flatMap(state => columns.filter(c => c.state === state))
