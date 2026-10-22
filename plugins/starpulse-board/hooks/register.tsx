@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_WIDTH, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanLabel, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -126,7 +126,6 @@ const CELL_PX = 7.5
 const TOOLS_PX = 96
 // Folded, the tools also carry the cost and turns.
 const MINI_TOOLS_PX = 230
-const ID_PX = 112
 
 type Terminal = ElementTable<'terminal'>
 // Every surface but the terminal draws the Svg; the desktop's table stands for them (Box, Text and Button are the same).
@@ -387,7 +386,7 @@ export const register: Register = (on, options) => {
 
     return (
       <Box key="band-wrap" flexDirection="column">
-      <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.ready}33`} backgroundColor={SP.stack} overflow="hidden">
+      <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.edge}2e`} backgroundColor={SP.stack} overflow="hidden">
         {/* The head spans the band and its tools sit over its right edge, as skins lays buttons over its art. */}
         <Box key="head" position="relative">
           <Svg
@@ -514,7 +513,8 @@ export const register: Register = (on, options) => {
                   return (
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
                       {/* A desktop draws any Button as a native one sized to its label, so the lane head is a flat full-width
-                          row with only its fold arrow a button; its tasks share one rounded card rather than a box apiece. */}
+                          row with only its fold arrow a button; its tasks share one silver-edged card, each row one plain button
+                          (small ID, title) beside a fixed-width bar, so every bar starts at one x. */}
                       <Box key={`head-${l.state}`} flexDirection="row" alignItems="center" gap={1} paddingX={1}>
                         <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
@@ -529,16 +529,24 @@ export const register: Register = (on, options) => {
                           flexDirection="column"
                           paddingX={1}
                           borderStyle="round"
-                          borderColor={`${color}1f`}
-                          hover={{ borderColor: `${color}55` }}
+                          borderColor={`${SP.edge}2e`}
+                          hover={{ borderColor: `${SP.edge}55` }}
                         >
-                          {l.tasks.map(t => (
-                            <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
-                              <Button key={`task:${t.id}`} label={t.id} plain onPress={() => update($, pickedTask, () => t.id)} />
-                              <Box flexGrow={1} />
-                              <Svg source={leanRowSvg(t, width - ID_PX)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
-                            </Box>
-                          ))}
+                          {l.tasks.map(t => {
+                            const lbl = leanLabel(t, width)
+                            return (
+                              <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
+                                <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
+                                  <Text size="caption" mono color={SP.muted}>
+                                    {t.id}
+                                  </Text>{' '}
+                                  <Text color={lbl.color}>{lbl.title}</Text>
+                                </Button>
+                                <Box flexGrow={1} />
+                                <Svg source={leanRowSvg(t)} alt={alt(t)} width={LEAN_WIDTH} height={LEAN_HEIGHT} />
+                              </Box>
+                            )
+                          })}
                         </Box>
                       )}
                     </Box>

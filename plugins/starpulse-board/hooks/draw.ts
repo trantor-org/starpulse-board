@@ -9,6 +9,8 @@ export const SP = {
   inkHi: '#e2e8f0',
   ink3: '#b8c4d8',
   slate: '#94a3b8',
+  // Every outline: a warm silver that sits quietly on the chat grey.
+  edge: '#d4d2c8',
   muted: '#6b7a93',
   dim: '#64748b',
   track: '#334155',
@@ -216,7 +218,7 @@ const style = (extra = '') =>
 
 // A drawing is an image the page's theme cannot reach, and the system scheme need not be the app's, so every card carries its
 // own dark surface: its inks read the same on a light or a dark page.
-const card = (w: number, h: number, stroke: string = SP.slate, strokeOpacity = 0.13, fill: string = SP.surface, radius = 7) =>
+const card = (w: number, h: number, stroke: string = SP.edge, strokeOpacity = 0.16, fill: string = SP.surface, radius = 7) =>
   `<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="${radius}" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}"/>`
 
 const pill = (x: number, y: number, w: number, color: string, label: string, size = 11) =>
@@ -306,7 +308,7 @@ export const rowSvg = (t: HeldTask, W: number, isPicked = false) => {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style()}` +
     `<defs><clipPath id="tc"><rect x="${left}" width="${titleMax}" height="${H}"/></clipPath><filter id="g" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="2"/></filter></defs>` +
-    card(W, H, isPicked ? color : SP.slate, isPicked ? 0.7 : 0.13) +
+    card(W, H, SP.edge, isPicked ? 0.6 : 0.16) +
     `<circle cx="${PAD + 4}" cy="${mid}" r="4" fill="${color}" filter="url(#g)" opacity=".6"/>` +
     `<circle${pulse(isLive)} cx="${PAD + 4}" cy="${mid}" r="3.5" fill="${color}"/>` +
     `<text x="${PAD + 14}" y="${mid + 4}" font-family="${MONO}" font-size="11.5" fill="${SP.slate}">${xml(t.id)}</text>` +
@@ -652,16 +654,29 @@ const LEAN_BAR = 72
 const LEAN_K = 34
 const LEAN_PR = Math.ceil(width('#0000', 11, true)) + 12
 
+// Every lean drawing's width: the bar, a gap, its k/n, a gap and the PR slot.
+export const LEAN_WIDTH = LEAN_BAR + 10 + LEAN_K + 10 + LEAN_PR
+
 /**
- * The Board's lean row, drawn right of its native ID button: the title (or why it waits), a slim AC bar with its k/n, and
- * the PR with its checks. The lane is the box around it, so no dot or pill.
+ * The Board's lean row text, the label of the row's one plain Button: the ID (drawn small) and the title, or why it waits,
+ * fitted to what the row leaves beside its lean drawing so a long title never widens the button past it.
  */
-export const leanRowSvg = (t: HeldTask, W: number) => {
+export const leanLabel = (t: HeldTask, W: number) => {
+  const sub = subline(t)
+
+  return { title: fit(sub.text, 13, W - LEAN_WIDTH - width(t.id, 11, true) - 32), color: sub.color }
+}
+
+/**
+ * The Board's lean drawing, right of the row's text at one width so every bar starts at one x: a slim AC bar with its k/n,
+ * and the PR with its checks. The lane is the box around it, so no dot or pill.
+ */
+export const leanRowSvg = (t: HeldTask) => {
+  const W = LEAN_WIDTH
   const H = LEAN_HEIGHT
   const mid = H / 2
   const [, color] = laneOf(t)
   const p = progress(t)
-  const sub = subline(t)
   const prX = W - LEAN_PR
   const kX = prX - 10
   const barX = kX - LEAN_K - LEAN_BAR
@@ -676,8 +691,7 @@ export const leanRowSvg = (t: HeldTask, W: number) => {
   return svg(
     W,
     H,
-    `<text x="0" y="${mid + 4.5}" font-family="${FONT}" font-size="12.5" fill="${sub.color}">${xml(fit(sub.text, 12.5, barX - 14))}</text>` +
-      bar +
+    bar +
       (checks
         ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${prX + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
           `<text x="${prX + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
@@ -758,7 +772,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
   y += 12 + PAD
   const H = Math.ceil(y)
 
-  return { height: H, source: svg(W, H, card(W, H, color, 0.12, SP.navy, 14) + parts.join('')) }
+  return { height: H, source: svg(W, H, card(W, H, SP.edge, 0.18, SP.navy, 14) + parts.join('')) }
 }
 
 /** The card of this session's task atop the Board: its lane, ID and title, criteria as checkboxes, and its pull request. */
@@ -799,7 +813,7 @@ export const currentSvg = (t: HeldTask, W: number) => {
   const H = Math.ceil(y)
 
   // No glow: the card's own dot pulses in its lane colour, as the mock's `#cur .dot.live` does.
-  const body = card(W, H, SP.ready, 0.14, SP.navy, 14) + parts.join('')
+  const body = card(W, H, SP.edge, 0.18, SP.navy, 14) + parts.join('')
 
   return {
     height: H,
