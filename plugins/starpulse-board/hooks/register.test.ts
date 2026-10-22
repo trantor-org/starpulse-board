@@ -265,6 +265,34 @@ test('desktop band: the head carries the lane dot, ID, title and bar; the body t
   expect(body?.source).toContain('turns')
 })
 
+test('the band cost counts up with each main-agent step, before the turn ends', async ($, on) => {
+  serve(on, BOARD)
+  let usd = 0
+  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [], cost: { usd } } }))
+  const usage = { model: 'm', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  on('turn.step', async function* (_$: any, e: any) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage }
+  })
+  const step = async (index: number, agentId?: string) => {
+    const s = $.turn.step({ turnId: 't-1', index, model: 'm', messageCount: 1, ...(agentId ? { agentId } : {}) } as any)
+    for await (const _ of s) {
+    }
+    await s.result
+    await settle()
+  }
+
+  await $.command.run(RUN)
+  const ui = await band($, 'desktop')
+  usd = 0.25
+  await step(0)
+  expect((await svgs(ui))[0]?.alt).toContain('cost $0.25, tokens 0.0k, turns 0')
+  usd = 0.5
+  await step(0, 'sub-1')
+  expect((await svgs(ui))[0]?.alt).toContain('cost $0.25')
+  await step(1)
+  expect((await svgs(ui))[0]?.alt).toContain('cost $0.50, tokens 0.0k, turns 0')
+})
+
 test('desktop band: a Needs attention reason shows on the path', async ($, on) => {
   serve(
     on,
@@ -993,7 +1021,7 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   await ui.unmount()
 })
 
-test('desktop Board tab: a text header and lane headers, lean row drawings on stack rows, no rules, hints or icon font', async ($, on) => {
+test('desktop Board tab: a text header and flat lane headers, lean row drawings on one stack card per lane, no rules, hints or icon font', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const seen = (await everyText(ui)).join('|')
@@ -1004,7 +1032,8 @@ test('desktop Board tab: a text header and lane headers, lean row drawings on st
   expect(seen).toContain('BOARD')
   expect(seen).toContain('3 tasks · live')
   expect(seen).toContain('IN PROGRESS')
-  expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.backgroundColor)).toBe('#11192b')
+  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor)).toBe('#11192b')
+  expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.borderStyle), 'a row has no box of its own').toBeUndefined()
   const buttons = await everyButton(ui)
   expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready', 'task:TASK-7']))
   expect(buttons.map(b => b.key)).not.toContain('refresh')
@@ -1041,7 +1070,9 @@ test('desktop Board tab: the lane buttons are arrows that fold, and Ready starts
 
   expect(await ui.find({ key: 'task:TASK-10' }), 'Ready is folded').toBeUndefined()
   const glyph = async (state: string) => String((await ui.find({ key: `lane:${state}` }))?.props.label)
-  expect((await ui.find({ key: 'head-ready' }))?.props.backgroundColor, 'a lane head is a full-width row, folded or not').toBe('#11192b')
+  const head = (await ui.find({ key: 'head-ready' }))?.props
+  expect(head, 'a lane head is a flat full-width row, folded or not').toMatchObject({ flexDirection: 'row' })
+  expect(head?.borderStyle, 'a lane head draws no box').toBeUndefined()
   expect(await glyph('ready')).toBe('›')
   expect(await glyph('in_progress')).toBe('⌄')
   await ui.press({ key: 'lane:ready' })
@@ -1108,11 +1139,11 @@ test('desktop Board tab: with no held task there is no Current task card', async
   await ui.unmount()
 })
 
-test('desktop Board tab: a bar ends in a square tail, not a round cap', async ($, on) => {
+test('desktop Board tab: a bar ends in a round cap, not a square tail', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
-  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12"\/>/)
+  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12" rx="6"\/>/)
   await ui.unmount()
 })
 

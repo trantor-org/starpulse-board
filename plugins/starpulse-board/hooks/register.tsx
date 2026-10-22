@@ -291,30 +291,41 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // The band's stats count the main agent's turns: a subagent's turn is inside one of them.
-  on('turn.complete', async ($, e, next) => {
-    const result = await next(e)
+  // Cost and tokens move with each main-agent step, so the band counts up mid-turn; a subagent's step is in the
+  // session's cost all the same, read at the main agent's next step. `last` is the running turn's cost so far.
+  on('turn.step', async function* ($, e, next) {
+    const result = yield* next(e)
     if (e.agentId) {
       return result
     }
     const usd = (await $.session.usage().catch(() => null))?.cost?.usd
-    const u = e.usage
+    const u = result.usage
     const input = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0
     const output = u?.output_tokens ?? 0
     await update($, stats, (s): Stats => {
       const cost = usd ?? s.cost
+      const spent = cost - s.cost
 
       return {
-        turns: s.turns + 1,
+        ...s,
         cost,
-        last: cost - s.cost,
+        last: e.index === 0 ? spent : s.last + spent,
         tokens: s.tokens + input + output,
         output: s.output + output,
-        agentMs: s.agentMs + e.durationMs,
         cacheRead: s.cacheRead + (u?.cache_read_input_tokens ?? 0),
         inputAll: s.inputAll + input,
       }
     })
+
+    return result
+  })
+
+  // A turn's end counts the turn and its time: its cost and tokens arrived step by step.
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (!e.agentId) {
+      await update($, stats, (s): Stats => ({ ...s, turns: s.turns + 1, agentMs: s.agentMs + e.durationMs }))
+    }
 
     return result
   })
@@ -473,18 +484,9 @@ export const register: Register = (on, options) => {
 
                   return (
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
-                      {/* A desktop draws any Button as a native one sized to its label, so the lane head is a full-width row
-                          with only its fold arrow a button: folded lanes then stack as even rows. */}
-                      <Box
-                        key={`head-${l.state}`}
-                        flexDirection="row"
-                        alignItems="center"
-                        gap={1}
-                        paddingX={1}
-                        borderStyle="round"
-                        borderColor={`${color}33`}
-                        backgroundColor={SP.stack}
-                      >
+                      {/* A desktop draws any Button as a native one sized to its label, so the lane head is a flat full-width
+                          row with only its fold arrow a button; its tasks share one rounded card rather than a box apiece. */}
+                      <Box key={`head-${l.state}`} flexDirection="row" alignItems="center" gap={1} paddingX={1}>
                         <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
                           {laneName.toUpperCase()}
@@ -492,24 +494,25 @@ export const register: Register = (on, options) => {
                         <Box flexGrow={1} />
                         <Text color={SP.muted}>{count}</Text>
                       </Box>
-                      {!isFolded &&
-                        l.tasks.map(t => (
-                          <Box
-                            key={`row-${t.id}`}
-                            flexDirection="row"
-                            alignItems="center"
-                            gap={1}
-                            paddingX={1}
-                            borderStyle="round"
-                            borderColor={`${SP.ready}1f`}
-                            backgroundColor={SP.stack}
-                            hover={{ borderColor: color }}
-                          >
-                            <Text color={color}>●</Text>
-                            <Button key={`task:${t.id}`} label={t.id} plain onPress={() => update($, pickedTask, () => t.id)} />
-                            <Svg source={leanRowSvg(t, width - ID_PX)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
-                          </Box>
-                        ))}
+                      {!isFolded && (
+                        <Box
+                          key={`rows-${l.state}`}
+                          flexDirection="column"
+                          paddingX={1}
+                          borderStyle="round"
+                          borderColor={`${color}26`}
+                          backgroundColor={SP.stack}
+                          hover={{ borderColor: `${color}66` }}
+                        >
+                          {l.tasks.map(t => (
+                            <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
+                              <Text color={color}>●</Text>
+                              <Button key={`task:${t.id}`} label={t.id} plain onPress={() => update($, pickedTask, () => t.id)} />
+                              <Svg source={leanRowSvg(t, width - ID_PX)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
                     </Box>
                   )
                 })}

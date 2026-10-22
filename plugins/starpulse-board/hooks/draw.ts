@@ -236,10 +236,9 @@ const pillWidth = (label: string) => Math.ceil(width(label, 11, false, 500)) + 2
 
 const CELL = 3
 
-// An AC bar at the origin: a track, the dot field of the k criteria met clipped to the bar, ticks past the fill for the rest,
-// and the k/n pill riding the edge. A square tail clips the field with a plain rectangle; the band's bar keeps its round cap.
-// `id` names the clip, unique within one drawing.
-const meter = (n: number, k: number, color: string, w: number, h: number, isSquare: boolean, id = 'c') => {
+// An AC bar at the origin: a round track, the dot field of the k criteria met clipped to a round-ended fill, ticks past the
+// fill for the rest, and the k/n pill riding the edge. `id` names the clip, unique within one drawing.
+const meter = (n: number, k: number, color: string, w: number, h: number, id = 'c') => {
   const fillW = Math.round((w * k) / n)
   const cols = Math.floor(fillW / CELL)
   const rows = Math.floor(h / CELL)
@@ -264,9 +263,9 @@ const meter = (n: number, k: number, color: string, w: number, h: number, isSqua
   const labelX = Math.max(0, Math.min(w - labelW, fillW - labelW))
 
   return (
-    `<clipPath id="${id}"><rect width="${w}" height="${h}"${isSquare ? '' : ` rx="${h / 2}"`}/></clipPath>` +
-    `<rect width="${w}" height="${h}"${isSquare ? '' : ` rx="${h / 2}"`} fill="${SP.slate}" fill-opacity=".12"/>` +
-    `<g clip-path="url(#${id})"><g fill="${color}">${dots.join('')}</g><g fill="${SP.track}">${ticks.join('')}</g></g>` +
+    `<clipPath id="${id}"><rect width="${Math.max(fillW, h)}" height="${h}" rx="${h / 2}"/></clipPath>` +
+    `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${SP.slate}" fill-opacity=".12"/>` +
+    `<g clip-path="url(#${id})" fill="${color}">${dots.join('')}</g><g fill="${SP.track}">${ticks.join('')}</g>` +
     `<rect x="${labelX}" width="${labelW}" height="${h}" rx="${h / 2}" fill="${k ? color : SP.track}"/>` +
     `<text x="${labelX + labelW / 2}" y="${h / 2 + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink0 : SP.slate}">${label}</text>`
   )
@@ -305,7 +304,7 @@ export const rowSvg = (t: HeldTask, W: number, isPicked = false) => {
   const barX = laneX - 10 - barW
   const bar =
     p && p.k !== null
-      ? `<g transform="translate(${barX},${(H - BAR_H) / 2})">${meter(p.n, p.k, color, barW, BAR_H, false)}</g>`
+      ? `<g transform="translate(${barX},${(H - BAR_H) / 2})">${meter(p.n, p.k, color, barW, BAR_H)}</g>`
       : p
         ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(text)}</text>`
         : ''
@@ -619,7 +618,7 @@ export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
     ? ''
     : p.k === null
       ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12, false)}</g>`
+      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
 
   return svg(
     W,
@@ -674,8 +673,8 @@ export const miniSvg = (t: HeldTask | null, s: Stats, W: number, tools = 0) => {
 export const LEAN_HEIGHT = 26
 
 /**
- * The Board's lean row, drawn right of its native lane dot and ID button: the title (or why it waits), an AC bar with a
- * square tail, and the PR with its checks. The lane is the box around it, so no pill.
+ * The Board's lean row, drawn right of its native lane dot and ID button: the title (or why it waits), a round-ended AC
+ * bar, and the PR with its checks. The lane is the box around it, so no pill.
  */
 export const leanRowSvg = (t: HeldTask, W: number) => {
   const H = LEAN_HEIGHT
@@ -691,7 +690,7 @@ export const leanRowSvg = (t: HeldTask, W: number) => {
     ? ''
     : p.k === null
       ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12, true)}</g>`
+      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
   const checks = t.pull ? CHECKS[t.pull.checks] : null
   const prX = W - prW
 
@@ -758,7 +757,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
     parts.push(label(PAD, y + 9, 'ACCEPTANCE CRITERIA'))
     y += 18
     if (p.k !== null) {
-      parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, Math.min(360, room), 14, false)}</g>`)
+      parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, Math.min(360, room), 14)}</g>`)
       y += 22
     }
     for (const c of t.criteria ?? []) {
@@ -781,7 +780,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
   y += 12 + PAD
   const H = Math.ceil(y)
 
-  return { height: H, source: svg(W, H, t.lane === 'in_progress', card(W, H, color, 0.3, SP.stack, 10) + parts.join('')) }
+  return { height: H, source: svg(W, H, t.lane === 'in_progress', card(W, H, color, 0.16, SP.stack, 14) + parts.join('')) }
 }
 
 /** The card of this session's task atop the Board: its lane, ID and title, criteria as checkboxes, and its pull request. */
@@ -806,7 +805,7 @@ export const currentSvg = (t: HeldTask, W: number) => {
   )
   y += 24
   if (p && p.k !== null) {
-    parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, room, 12, false, 'cc')}</g>`)
+    parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, room, 12, 'cc')}</g>`)
     y += 20
   }
   for (const c of t.criteria ?? []) {
@@ -822,7 +821,7 @@ export const currentSvg = (t: HeldTask, W: number) => {
   const H = Math.ceil(y)
 
   // No glow: the card's own dot pulses in its lane colour, as the mock's `#cur .dot.live` does.
-  const body = card(W, H, SP.ready, 0.1, SP.surface, 10) + parts.join('')
+  const body = card(W, H, SP.ready, 0.1, SP.surface, 14) + parts.join('')
 
   return {
     height: H,
