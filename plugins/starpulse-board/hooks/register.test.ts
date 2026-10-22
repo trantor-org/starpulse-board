@@ -1079,7 +1079,7 @@ test('desktop Board tab: the whole row is one plain button, a small ID and the t
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
   expect(row.props.source, 'the title lives in the button, not the bar').not.toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
-  expect(row.props.height).toBe(24)
+  expect(row.props.height).toBe(26)
   await ui.unmount()
 })
 
@@ -1171,7 +1171,7 @@ test('desktop Board tab: a bar ends in a round cap, not a square tail', async ($
   const ui = await openKanban($, on, {}, 'desktop')
 
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
-  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="6" rx="3"\/>/)
+  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12" rx="6"\/>/)
   await ui.unmount()
 })
 
@@ -1194,6 +1194,21 @@ test("desktop Board tab: every row's bar starts at one x, PR or not, whatever th
   expect(starts.length).toBeGreaterThan(1)
   expect(new Set(starts).size).toBe(1)
   expect(new Set(rows.map(r => r.props.width)).size, 'one drawing width').toBe(1)
+  await ui.unmount()
+})
+
+test('desktop Board tab: a busy lane shows its first six rows until Show N more, and the live bar twinkles', async ($, on) => {
+  const many = Array.from({ length: 8 }, (_, i) => task({ id: `TASK-2${i}`, title: `Busy ${i}`, assignee: `session-${i}` }))
+  const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', many]]) }, 'desktop')
+
+  const taskKeys = async () => (await everyButton(ui)).map(b => String(b.key)).filter(k => k.startsWith('task:'))
+  expect(await taskKeys()).toHaveLength(6)
+  expect((await ui.find({ key: 'more:in_progress' }))?.props.label).toBe('Show 2 more')
+  const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-20:')) as any
+  expect(row.props.source, 'an In Progress bar twinkles').toContain('@keyframes tw')
+  await ui.press({ key: 'more:in_progress' })
+  expect(await taskKeys()).toHaveLength(8)
+  expect((await ui.find({ key: 'more:in_progress' }))?.props.label).toBe('Show fewer')
   await ui.unmount()
 })
 

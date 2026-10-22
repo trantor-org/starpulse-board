@@ -55,6 +55,7 @@ declare module 'claude-code' {
       openTask: string | null
       lanes: Lane[] | null
       folded: string[]
+      expanded: string[]
       pickedTask: string | null
       stats: Stats
       isMini: boolean

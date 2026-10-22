@@ -13,6 +13,9 @@ const tasks = atom({ plugin: 'starpulse-board', key: 'tasks' } as const, null)
 const openTask = atom({ plugin: 'starpulse-board', key: 'openTask' } as const, null)
 const lanes = atom({ plugin: 'starpulse-board', key: 'lanes' } as const, null)
 const folded = atom({ plugin: 'starpulse-board', key: 'folded' } as const, ['ready', 'waiting', 'done'])
+// A lane shows this many rows until it is expanded.
+const LANE_PAGE = 6
+const expanded = atom({ plugin: 'starpulse-board', key: 'expanded' } as const, [])
 const pickedTask = atom({ plugin: 'starpulse-board', key: 'pickedTask' } as const, null)
 const stats = atom({ plugin: 'starpulse-board', key: 'stats' } as const, NO_STATS)
 const isMini = atom({ plugin: 'starpulse-board', key: 'isMini' } as const, false)
@@ -451,6 +454,7 @@ export const register: Register = (on, options) => {
           void followLanes($)
           const found = await read($, lanes)
           const shut = await read($, folded)
+          const shown = await read($, expanded)
           const picked = await read($, pickedTask)
           const mine = await read($, tasks)
           const { Box, Button, Text, Svg } = $.ui.resolve(e) as Remote
@@ -491,6 +495,7 @@ export const register: Register = (on, options) => {
             }
             const open = found.reduce((sum, l) => sum + l.tasks.length, 0)
             const fold = (state: string) => update($, folded, f => (f.includes(state) ? f.filter(x => x !== state) : [...f, state]))
+            const expand = (state: string) => update($, expanded, x => (x.includes(state) ? x.filter(y => y !== state) : [...x, state]))
             // This session's task has its own card, so its lane row goes and a lane it empties is hidden.
             const current = mine?.[0] ?? null
             const lanesShown = found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) })).filter(l => l.tasks.length)
@@ -509,6 +514,10 @@ export const register: Register = (on, options) => {
                   const isFolded = shut.includes(l.state)
                   const [laneName, color] = LANE_STYLES[l.state] ?? [l.name, SP.slate]
                   const count = `${l.tasks.length}${l.state === 'done' ? ' · last 24h' : ''}`
+                  // A busy lane draws its first rows only, so the pane stays short and few bars animate, until "Show N more".
+                  const isWhole = shown.includes(l.state)
+                  const rest = l.tasks.length - LANE_PAGE
+                  const rows = isWhole || rest <= 0 ? l.tasks : l.tasks.slice(0, LANE_PAGE)
 
                   return (
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
@@ -532,7 +541,7 @@ export const register: Register = (on, options) => {
                           borderColor={`${SP.edge}2e`}
                           hover={{ borderColor: `${SP.edge}55` }}
                         >
-                          {l.tasks.map(t => {
+                          {rows.map(t => {
                             const lbl = leanLabel(t, width)
                             return (
                               <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
@@ -547,6 +556,9 @@ export const register: Register = (on, options) => {
                               </Box>
                             )
                           })}
+                          {rest > 0 && (
+                            <Button key={`more:${l.state}`} label={isWhole ? 'Show fewer' : `Show ${rest} more`} plain onPress={() => expand(l.state)} />
+                          )}
                         </Box>
                       )}
                     </Box>

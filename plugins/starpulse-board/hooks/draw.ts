@@ -646,16 +646,62 @@ export const miniSvg = (t: HeldTask | null, W: number, tools = 0) => {
   return svg(W, BAND_HEIGHT, `<g transform="translate(10,8)">${line(pieces, W - 20 - tools, 10)}</g>`)
 }
 
-export const LEAN_HEIGHT = 24
+const noise = (a: number, b: number) => {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
 
-// The lean row's right columns, fixed so every row's bar starts at one x: the bar, its k/n, and a PR slot kept even when
-// the task has no PR.
-const LEAN_BAR = 72
-const LEAN_K = 34
+  return x - Math.floor(x)
+}
+
+// A live lane's dots twinkle out of step; rules for `svg`'s `extra`.
+const TWINKLE =
+  '.t0,.t1,.t2,.t3{animation:tw 2.4s ease-in-out infinite}.t1{animation-duration:2.9s;animation-delay:-.7s}.t2{animation-duration:2s;animation-delay:-1.3s}.t3{animation-duration:3.3s;animation-delay:-.4s}@keyframes tw{0%,100%{opacity:1}50%{opacity:.35}}'
+
+const CELL = 3
+
+// The lean row's AC bar at the origin: a round track, the dot field of the k criteria met clipped to a round-ended fill, ticks past the
+// fill for the rest, and the k/n pill riding the edge. `id` names the clip, unique within one drawing.
+const dotMeter = (n: number, k: number, color: string, w: number, h: number, id = 'c') => {
+  const fillW = Math.round((w * k) / n)
+  const cols = Math.floor(fillW / CELL)
+  const rows = Math.floor(h / CELL)
+  const dots: string[] = []
+  const ticks: string[] = []
+  for (let c = 0; c < cols; c++) {
+    const density = 0.4 + 0.55 * Math.pow(c / Math.max(1, cols), 1.2)
+    for (let r = 0; r < rows; r++) {
+      if (noise(c, r) < density) {
+        dots.push(`<rect class="t${Math.floor(noise(r, c) * 4)}" x="${c * CELL + 1}" y="${r * CELL + 1}" width="2" height="2"/>`)
+      }
+    }
+  }
+  for (let i = 1; i < n; i++) {
+    const x = Math.round((w * i) / n)
+    if (x > fillW + 3) {
+      ticks.push(`<rect x="${x}" y="${h / 2 - 3}" width="1.5" height="6" rx=".75"/>`)
+    }
+  }
+  const label = `${k}/${n}`
+  const labelW = Math.round(14 + label.length * 6.2)
+  const labelX = Math.max(0, Math.min(w - labelW, fillW - labelW))
+
+  return (
+    `<clipPath id="${id}"><rect width="${Math.max(fillW, h)}" height="${h}" rx="${h / 2}"/></clipPath>` +
+    `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${SP.slate}" fill-opacity=".12"/>` +
+    `<g clip-path="url(#${id})" fill="${color}">${dots.join('')}</g><g fill="${SP.track}">${ticks.join('')}</g>` +
+    `<rect x="${labelX}" width="${labelW}" height="${h}" rx="${h / 2}" fill="${k ? color : SP.track}"/>` +
+    `<text x="${labelX + labelW / 2}" y="${h / 2 + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink0 : SP.slate}">${label}</text>`
+  )
+}
+
+export const LEAN_HEIGHT = 26
+
+// The lean row's right columns, fixed so every row's bar starts at one x: the bar with its k/n pill, and a PR slot kept
+// even when the task has no PR.
+const LEAN_BAR = 90
 const LEAN_PR = Math.ceil(width('#0000', 11, true)) + 12
 
-// Every lean drawing's width: the bar, a gap, its k/n, a gap and the PR slot.
-export const LEAN_WIDTH = LEAN_BAR + 10 + LEAN_K + 10 + LEAN_PR
+// Every lean drawing's width: the bar, a gap and the PR slot.
+export const LEAN_WIDTH = LEAN_BAR + 10 + LEAN_PR
 
 /**
  * The Board's lean row text, the label of the row's one plain Button: the ID (drawn small) and the title, or why it waits,
@@ -671,8 +717,8 @@ export const leanLabel = (t: HeldTask, W: number) => {
 }
 
 /**
- * The Board's lean drawing, right of the row's text at one width so every bar starts at one x: a slim AC bar with its k/n,
- * and the PR with its checks. The lane is the box around it, so no dot or pill.
+ * The Board's lean drawing, right of the row's text at one width so every bar starts at one x: the dot-field AC bar with
+ * its k/n pill, and the PR with its checks. The lane is the box around it, so no dot or pill.
  */
 export const leanRowSvg = (t: HeldTask) => {
   const W = LEAN_WIDTH
@@ -681,14 +727,13 @@ export const leanRowSvg = (t: HeldTask) => {
   const [, color] = laneOf(t)
   const p = progress(t)
   const prX = W - LEAN_PR
-  const kX = prX - 10
-  const barX = kX - LEAN_K - LEAN_BAR
+  const barX = prX - 10 - LEAN_BAR
+  const isLive = t.lane === 'in_progress'
   const bar = !p
     ? ''
     : p.k === null
-      ? `<text x="${kX}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 3})">${meter(p.n, p.k, color, LEAN_BAR, 6, { isLive: t.lane === 'in_progress', isLabeled: false })}</g>` +
-        `<text x="${kX}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums" fill="${p.k ? SP.slate : SP.dim}">${ratio(p)}</text>`
+      ? `<text x="${barX + LEAN_BAR}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
+      : `<g transform="translate(${barX},${mid - 6})">${dotMeter(p.n, p.k, color, LEAN_BAR, 12)}</g>`
   const checks = t.pull ? CHECKS[t.pull.checks] : null
 
   return svg(
@@ -699,6 +744,7 @@ export const leanRowSvg = (t: HeldTask) => {
         ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${prX + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
           `<text x="${prX + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
         : ''),
+    isLive ? TWINKLE : '',
   )
 }
 
