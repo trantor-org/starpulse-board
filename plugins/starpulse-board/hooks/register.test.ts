@@ -1075,7 +1075,7 @@ test('desktop Board tab: the whole row is one plain button drawing only the ID, 
   const drawn = pick.children.filter((c: any) => typeof c === 'object')
   expect(drawn, 'a title would push the bar off a narrow pane').toHaveLength(1)
   expect(drawn[0].props).toMatchObject({ mono: true })
-  expect(drawn[0].children.join('')).toBe('TASK-7')
+  expect(drawn[0].children.join('').trimEnd()).toBe('TASK-7')
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
   expect(row.props.source, 'the title lives in the button, not the bar').not.toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
@@ -1194,6 +1194,20 @@ test("desktop Board tab: every row's bar starts at one x, PR or not, whatever th
   expect(starts.length).toBeGreaterThan(1)
   expect(new Set(starts).size).toBe(1)
   expect(new Set(rows.map(r => r.props.width)).size, 'one drawing width').toBe(1)
+  await ui.unmount()
+})
+
+test('desktop Board tab: the bar follows an ID column sized for six-digit IDs, not the pane edge', async ($, on) => {
+  const ui = await openKanban($, on, { frame: FULL }, 'desktop')
+  const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key ?? b.props?.key ?? '').startsWith('row-')) as any[]
+  const ids = rows.map(r => r.children.find((c: any) => c?.type === 'Button').children.find((c: any) => typeof c === 'object').children.join(''))
+
+  expect(rows.length).toBeGreaterThan(1)
+  expect(new Set(ids.map(i => i.length)), 'every ID pads to one mono column').toEqual(new Set([11]))
+  for (const r of rows) {
+    const kids = r.children.filter((c: any) => typeof c === 'object').map((c: any) => c.type)
+    expect(kids.slice(0, 2), 'the bar sits right after the ID, no spacer between').toEqual(['Button', 'Svg'])
+  }
   await ui.unmount()
 })
 

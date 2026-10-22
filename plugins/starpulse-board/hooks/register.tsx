@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, idChars, leanRowSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -500,7 +500,8 @@ export const register: Register = (on, options) => {
             const current = mine?.[0] ?? null
             const lanesShown = found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) })).filter(l => l.tasks.length)
             const card = current ? currentSvg(current, width) : null
-            const leanW = leanWidth(width, lanesShown.flatMap(l => l.tasks.map(t => t.id)))
+            const shownIds = lanesShown.flatMap(l => l.tasks.map(t => t.id))
+            const [leanW, idW] = [leanWidth(width, shownIds), idChars(shownIds)]
 
             return (
               <Box key="board" flexDirection="column" gap={1}>
@@ -524,7 +525,7 @@ export const register: Register = (on, options) => {
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
                       {/* A desktop draws any Button as a native one sized to its label, so the lane head is a flat full-width
                           row with only its fold arrow a button; its tasks share one silver-edged card, each row one plain button
-                          (the ID alone) beside a fixed-width bar, so every bar starts at one x. */}
+                          (the ID, padded to one column) with its bar right after, so every bar starts at one x. */}
                       <Box key={`head-${l.state}`} flexDirection="row" alignItems="center" gap={1} paddingX={1}>
                         <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
@@ -543,14 +544,14 @@ export const register: Register = (on, options) => {
                           hover={{ borderColor: `${SP.edge}55` }}
                         >
                           {rows.map(t => (
-                            // The row draws only the ID: a title sized from an estimated text width pushed the bar off a narrow pane.
+                            // The row draws only the ID, padded with no-break spaces to one mono column so the bar right after it
+                            // starts at one x; a title sized from an estimated text width pushed the bar off a narrow pane.
                             <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
                               <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
                                 <Text mono color={SP.slate}>
-                                  {t.id}
+                                  {t.id.padEnd(idW, '\u00a0')}
                                 </Text>
                               </Button>
-                              <Box flexGrow={1} />
                               <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} width={leanW} height={LEAN_HEIGHT} />
                             </Box>
                           ))}

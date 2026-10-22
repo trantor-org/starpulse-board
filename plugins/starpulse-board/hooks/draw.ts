@@ -704,12 +704,18 @@ const [BAR_MIN, BAR_MAX] = [90, 320]
 // gaps, with room to spare, since a native button's chrome is wider than the drawing can measure.
 const LEAN_CHROME = 120
 
+// The Board's ID column, sized for a six-digit ID (`TASK-123456`) so the bars hold one x as the board grows.
+const ID_CHARS = 11
+
+/** Every row's ID column in mono characters: six digits' worth, or the longest ID past that. */
+export const idChars = (ids: string[]) => Math.max(ID_CHARS, ...ids.map(i => i.length))
+
 /**
- * Every lean drawing's width in a pane W wide: the bar takes the middle the longest ID leaves, so one width serves every
- * row and every bar starts at one x.
+ * Every lean drawing's width in a pane W wide: the bar takes what the ID column leaves, so one width serves every row and
+ * every bar starts at one x.
  */
 export const leanWidth = (W: number, ids: string[]) => {
-  const id = Math.max(0, ...ids.map(i => width(i, 13, true)))
+  const id = width('0'.repeat(idChars(ids)), 13, true)
   const bar = Math.max(BAR_MIN, Math.min(BAR_MAX, Math.floor(W - id - LEAN_CHROME - LEAN_GAP - LEAN_PR)))
 
   return bar + LEAN_GAP + LEAN_PR
