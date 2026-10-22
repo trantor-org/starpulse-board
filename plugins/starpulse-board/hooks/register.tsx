@@ -547,22 +547,18 @@ export const register: Register = (on, options) => {
                           hover={{ borderColor: `${SP.edge}55` }}
                         >
                           {rows.map(t => (
-                            // The row draws only the ID, padded with no-break spaces to the longest ID's mono column so every bar
-                            // starts at one x; a title sized from an estimated text width pushed the bar off a narrow pane.
+                            // A desktop draws its native button from the label alone, so the label is the ID, padded with no-break
+                            // spaces to the longest ID so every bar starts at one x; a title there pushed the bar off the pane.
                             <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
-                              <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
-                                <Text mono color={SP.slate}>
-                                  {t.id.padEnd(idW, '\u00a0')}
-                                </Text>
-                              </Button>
+                              <Button key={`task:${t.id}`} label={t.id.padEnd(idW, '\u00a0')} plain onPress={() => update($, pickedTask, () => t.id)} />
                               {/* Where a surface runs a Client, the bar is one that flexes into all the ID leaves and draws to
                                   its own width, then a fixed pill and PR; elsewhere one drawing hangs from the right edge, its
                                   width a guess the surface caps at the slot. */}
                               {Client && <Client key={`bar:${t.id}`} module="./bar.tsx" props={leanBar(t)} flexGrow={1} />}
-                              {Client && <Svg source={leanTailSvg(t)} alt={alt(t)} width={LEAN_TAIL} height={LEAN_HEIGHT} />}
+                              {Client && <Svg source={leanTailSvg(t)} alt={`${alt(t)}. ${t.title}`} width={LEAN_TAIL} height={LEAN_HEIGHT} />}
                               {!Client && (
                                 <Box flexGrow={1} flexDirection="row" justifyContent="flex-end">
-                                  <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} height={LEAN_HEIGHT} />
+                                  <Svg source={leanRowSvg(t, leanW)} alt={`${alt(t)}. ${t.title}`} height={LEAN_HEIGHT} />
                                 </Box>
                               )}
                             </Box>
