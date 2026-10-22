@@ -141,7 +141,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     expect(argv0).toEqual(['starpulse', '/home/me/.local/bin/starpulse'])
     expect(text).toBe('PROJ-1 [In Progress] Add the verbs\nPROJ-2 [Review] Rotate the secret')
-    expect(await ui.find({ key: 'kanban' })).toBeDefined()
+    expect(await ui.find({ key: 'band' })).toBeDefined()
   })
 
   test(`the band stays on with no hide button (${surface})`, async ($, on) => {
@@ -151,7 +151,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await band($, surface)
 
     expect(await ui.find({ key: 'hide' })).toBeUndefined()
-    expect(await ui.find({ key: 'kanban' })).toBeDefined()
+    expect(await ui.find({ key: 'band' })).toBeDefined()
   })
 
   for (const [why, exitCode, stdout] of [
@@ -261,8 +261,36 @@ test('desktop band: the head carries the lane dot, ID, title and bar; the body t
   for (const text of ['PROJ-1', 'Add the verbs', '#fbbf24']) {
     expect(head?.source, text).toContain(text)
   }
-  expect(body?.source).toContain('#392')
+  expect(body?.source).toContain('checks running')
   expect(body?.source).toContain('turns')
+})
+
+test('the band cost counts up with each main-agent step, before the turn ends', async ($, on) => {
+  serve(on, BOARD)
+  let usd = 0
+  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [], cost: { usd } } }))
+  const usage = { model: 'm', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  on('turn.step', async function* (_$: any, e: any) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage }
+  })
+  const step = async (index: number, agentId?: string) => {
+    const s = $.turn.step({ turnId: 't-1', index, model: 'm', messageCount: 1, ...(agentId ? { agentId } : {}) } as any)
+    for await (const _ of s) {
+    }
+    await s.result
+    await settle()
+  }
+
+  await $.command.run(RUN)
+  const ui = await band($, 'desktop')
+  usd = 0.25
+  await step(0)
+  expect((await svgs(ui))[0]?.alt).toContain('cost $0.25, tokens 0.0k, turns 0')
+  usd = 0.5
+  await step(0, 'sub-1')
+  expect((await svgs(ui))[0]?.alt).toContain('cost $0.25')
+  await step(1)
+  expect((await svgs(ui))[0]?.alt).toContain('cost $0.50, tokens 0.0k, turns 0')
 })
 
 test('desktop band: a Needs attention reason shows on the path', async ($, on) => {
@@ -292,7 +320,8 @@ test('desktop band: with no held task it stays on and says so', async ($, on) =>
   const [head] = await svgs(ui)
 
   expect(head?.source).toContain('No task held')
-  expect(await ui.find({ key: 'kanban' })).toBeDefined()
+  expect(await ui.find({ key: 'band' })).toBeDefined()
+  expect(await ui.find({ key: 'kanban' }), 'the band has no Board button').toBeUndefined()
   expect(await ui.find({ key: 'copy' })).toBeUndefined()
 })
 
@@ -752,23 +781,6 @@ test('a refused move shows the server\'s reason as a toast', async ($, on) => {
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the band's Board button opens the Board tab with the keys (${surface})`, async ($, on) => {
-    const opened: string[] = []
-    const stream = feed()
-    sessionsHost(on, { opened, held: [stream] })
-
-    const ui = await band($, surface)
-    await start($, surface)
-    stream.held(BOARD)
-    await settle()
-    await ui.press({ key: 'kanban' })
-
-    expect(opened.at(-1)).toBe('starpulse-kanban focus=true')
-    await ui.unmount()
-  })
-}
-
-for (const surface of ['terminal', 'desktop'] as const) {
   test(`the band draws what the held-task stream sends, with no starpulse run (${surface})`, async ($, on) => {
     const stream = feed()
     const ran: string[][] = []
@@ -862,10 +874,9 @@ for (const glyphs of ['nerd', 'plain'] as const) {
     await settle()
     const held = await texts(await band($, 'terminal'))
 
-    // The held task's lane icon and PR checks glyph, and the summary line's Board icon.
+    // The held task's lane icon and PR checks glyph.
     expect(has(held, set.inProgress), 'lane icon').toBe(true)
     expect(has(held, set.pending), 'checks glyph').toBe(true)
-    expect(has(held, `${set.board} Board`), 'board icon').toBe(true)
   })
 
   test(`glyphs=${glyphs}: the Board tab draws ${glyphs} icons`, { options: { glyphs } }, async ($, on) => {
@@ -982,7 +993,9 @@ test('the band draws no fill: every Button is plain and no element sets a backgr
 
 // The private-use range Nerd Font icons live in: a Desktop without the font draws each as a missing-glyph box.
 const NERD_ICON = /[\ue000-\uf8ff]/
-const everyText = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((el: any) => String(el.children.join('')))
+// A Text's words, a Link child read as its label.
+const everyText = async (ui: any) =>
+  (await ui.findAll({ type: 'Text' })).map((el: any) => el.children.map((c: any) => (typeof c === 'object' ? (c?.props?.label ?? '') : String(c))).join(''))
 const everyButton = async (ui: any) => (await ui.findAll({ type: 'Button' })) as any[]
 
 test('desktop band: native buttons, a head and body drawing, no icon font, no bracketed text, a stack fill', async ($, on) => {
@@ -995,9 +1008,11 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   await settle()
 
   const buttons = await everyButton(ui)
-  expect(buttons.map(b => b.key).sort()).toEqual(['copy', 'fold', 'kanban'])
+  expect(buttons.map(b => b.key), 'no Copy or Board button: the PR link and fold only').toEqual(['fold'])
   expect(buttons.some(b => b.props.plain), 'native buttons, not plain text').toBe(false)
-  expect((await ui.findAll({ type: 'Svg' })).length, 'head and body').toBe(2)
+  const drawings = await ui.findAll({ type: 'Svg' })
+  expect(drawings.length, 'head and body').toBe(2)
+  expect(drawings.every((s: any) => s.props.isInteractive), 'drawn in a frame, so CSS animation runs').toBe(true)
   const seen = (await everyText(ui)).join('|')
   expect(seen).not.toMatch(NERD_ICON)
   expect(seen).not.toContain('[')
@@ -1006,7 +1021,7 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   await ui.unmount()
 })
 
-test('desktop Board tab: a text header and lane headers, lean row drawings on stack rows, no rules, hints or icon font', async ($, on) => {
+test('desktop Board tab: a text header and flat lane headers, lean row drawings on one stack card per lane, no rules, hints or icon font', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const seen = (await everyText(ui)).join('|')
@@ -1017,7 +1032,8 @@ test('desktop Board tab: a text header and lane headers, lean row drawings on st
   expect(seen).toContain('BOARD')
   expect(seen).toContain('3 tasks · live')
   expect(seen).toContain('IN PROGRESS')
-  expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.backgroundColor)).toBe('#11192b')
+  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor)).toBe('#11192b')
+  expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.borderStyle), 'a row has no box of its own').toBeUndefined()
   const buttons = await everyButton(ui)
   expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready', 'task:TASK-7']))
   expect(buttons.map(b => b.key)).not.toContain('refresh')
@@ -1053,7 +1069,10 @@ test('desktop Board tab: the lane buttons are arrows that fold, and Ready starts
   const ui = await openKanban($, on, {}, 'desktop')
 
   expect(await ui.find({ key: 'task:TASK-10' }), 'Ready is folded').toBeUndefined()
-  const glyph = async (state: string) => String((await ui.find({ key: `lane:${state}` }))?.children?.[0]?.children?.join(''))
+  const glyph = async (state: string) => String((await ui.find({ key: `lane:${state}` }))?.props.label)
+  const head = (await ui.find({ key: 'head-ready' }))?.props
+  expect(head, 'a lane head is a flat full-width row, folded or not').toMatchObject({ flexDirection: 'row' })
+  expect(head?.borderStyle, 'a lane head draws no box').toBeUndefined()
   expect(await glyph('ready')).toBe('›')
   expect(await glyph('in_progress')).toBe('⌄')
   await ui.press({ key: 'lane:ready' })
@@ -1120,11 +1139,11 @@ test('desktop Board tab: with no held task there is no Current task card', async
   await ui.unmount()
 })
 
-test('desktop Board tab: a bar ends in a square tail, not a round cap', async ($, on) => {
+test('desktop Board tab: a bar ends in a round cap, not a square tail', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
-  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12"\/>/)
+  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12" rx="6"\/>/)
   await ui.unmount()
 })
 
@@ -1135,4 +1154,92 @@ test('a move StarPulse marks allowed: false draws no button; an allowed one does
   expect(await ui.find({ key: 'move:TASK-7:review' })).toBeDefined()
   expect(await ui.find({ key: 'move:TASK-7:ready' })).toBeUndefined()
   await ui.unmount()
+})
+
+// The pane as the desktop mounts it before it has measured the dock: no columns yet.
+const unmeasured = ($: any) =>
+  $.ui.mount({ plugin: 'starpulse-board', surface: 'desktop', component: 'Pane', props: { ...PANE_PROPS, placement: 'dock', bodyColumns: undefined }, requestId: 'starpulse-kanban' })
+
+test('Board tab draws its error: an unmeasured dock still draws the Board, every drawing a finite width', async ($, on) => {
+  const stream = feed()
+  const ui0 = await openKanban($, on, { lanes: [stream] }, 'desktop')
+  await ui0.unmount()
+  const ui = await unmeasured($)
+
+  expect((await everyText(ui)).join('|')).toContain('BOARD')
+  const widths = (await ui.findAll({ type: 'Svg' })).map((s: any) => s.props.width)
+  expect(widths.length).toBeGreaterThan(0)
+  expect(widths.every((w: number) => Number.isFinite(w) && w > 0 && w <= 4096), String(widths)).toBe(true)
+  await ui.unmount()
+})
+
+test('Board tab draws its error: a task it cannot draw shows why in the tab, not a blank pane', async ($, on) => {
+  const broken = board([['in_progress', 'In Progress', [task({ id: 'TASK-9', title: 42 })]]])
+  const ui = await openKanban($, on, { frame: broken }, 'desktop')
+
+  expect((await everyText(ui)).join('|')).toContain('could not draw')
+  await ui.unmount()
+})
+
+test('PR chip opens the pull request: the band PR number is a native link, not a chip in the drawing', async ($, on) => {
+  serve(on, BOARD)
+
+  await $.command.run(RUN)
+  const ui = await band($, 'desktop')
+  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => l.props)
+  expect(links).toEqual([expect.objectContaining({ href: `${PULL}/392`, label: '#392' })])
+  const [, body] = await svgs(ui)
+  expect(body?.source).not.toContain('>#392<')
+})
+
+// The end colour of each streaming link: the step it streams into.
+const hotEnds = (source: string) => [...source.matchAll(/<stop offset="1" stop-color="([^"]+)"\/><\/linearGradient><line class="hot"/g)].map(m => m[1])
+
+const AT_PUSH = board([['in_progress', 'In Progress', [task({ id: 'PROJ-1', title: 'Add the verbs', phase: 'deliver', substate: 'committed' })]]])
+
+test('steps are idle before live: a link streams only into the running step, never out toward one not started', async ($, on) => {
+  serve(on, AT_PUSH)
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(hotEnds(body!.source).filter(c => c !== '#fbbf24'), 'no stream ends at an idle or finished step').toEqual([])
+})
+
+test('desktop band: a Review task streams nothing', async ($, on) => {
+  serve(on, board([['review', 'Review', [task({ id: 'PROJ-2', title: 'Rotate the secret', criteria: CRITERIA.map(c => ({ ...c, checked: true })) })]]]))
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).not.toContain('class="hot"')
+})
+
+test('desktop band: the head spans the body width and its buttons sit over it, the way skins overlays', async ($, on) => {
+  serve(on, BOARD)
+
+  await $.command.run(RUN)
+  const ui = await band($, 'desktop')
+  const [head, body] = (await ui.findAll({ type: 'Svg' })).map((s: any) => s.props.width)
+  expect(head).toBe(body)
+  const tools = await ui.find({ key: 'tools' })
+  expect(tools?.props.position).toBe('absolute')
+})
+
+test('desktop band: phases not reached yet are not drawn, and the running step pulses', async ($, on) => {
+  serve(on, AT_PUSH)
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).toContain('Deliver')
+  expect(body?.source, 'Review has not started').not.toContain('>Review<')
+  expect(body?.source).toContain('class="ping"')
+})
+
+test('desktop band: a task the board reports no phase for says so rather than guessing one', async ($, on) => {
+  serve(on, BOARD)
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).toContain('Delivery phase not reported by the board')
+  expect(body?.source).not.toContain('>Build<')
+  expect(body?.source).not.toContain('class="hot"')
 })

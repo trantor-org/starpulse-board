@@ -236,10 +236,9 @@ const pillWidth = (label: string) => Math.ceil(width(label, 11, false, 500)) + 2
 
 const CELL = 3
 
-// An AC bar at the origin: a track, the dot field of the k criteria met clipped to the bar, ticks past the fill for the rest,
-// and the k/n pill riding the edge. A square tail clips the field with a plain rectangle; the band's bar keeps its round cap.
-// `id` names the clip, unique within one drawing.
-const meter = (n: number, k: number, color: string, w: number, h: number, isSquare: boolean, id = 'c') => {
+// An AC bar at the origin: a round track, the dot field of the k criteria met clipped to a round-ended fill, ticks past the
+// fill for the rest, and the k/n pill riding the edge. `id` names the clip, unique within one drawing.
+const meter = (n: number, k: number, color: string, w: number, h: number, id = 'c') => {
   const fillW = Math.round((w * k) / n)
   const cols = Math.floor(fillW / CELL)
   const rows = Math.floor(h / CELL)
@@ -264,9 +263,9 @@ const meter = (n: number, k: number, color: string, w: number, h: number, isSqua
   const labelX = Math.max(0, Math.min(w - labelW, fillW - labelW))
 
   return (
-    `<clipPath id="${id}"><rect width="${w}" height="${h}"${isSquare ? '' : ` rx="${h / 2}"`}/></clipPath>` +
-    `<rect width="${w}" height="${h}"${isSquare ? '' : ` rx="${h / 2}"`} fill="${SP.slate}" fill-opacity=".12"/>` +
-    `<g clip-path="url(#${id})"><g fill="${color}">${dots.join('')}</g><g fill="${SP.track}">${ticks.join('')}</g></g>` +
+    `<clipPath id="${id}"><rect width="${Math.max(fillW, h)}" height="${h}" rx="${h / 2}"/></clipPath>` +
+    `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${SP.slate}" fill-opacity=".12"/>` +
+    `<g clip-path="url(#${id})" fill="${color}">${dots.join('')}</g><g fill="${SP.track}">${ticks.join('')}</g>` +
     `<rect x="${labelX}" width="${labelW}" height="${h}" rx="${h / 2}" fill="${k ? color : SP.track}"/>` +
     `<text x="${labelX + labelW / 2}" y="${h / 2 + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink0 : SP.slate}">${label}</text>`
   )
@@ -305,7 +304,7 @@ export const rowSvg = (t: HeldTask, W: number, isPicked = false) => {
   const barX = laneX - 10 - barW
   const bar =
     p && p.k !== null
-      ? `<g transform="translate(${barX},${(H - BAR_H) / 2})">${meter(p.n, p.k, color, barW, BAR_H, false)}</g>`
+      ? `<g transform="translate(${barX},${(H - BAR_H) / 2})">${meter(p.n, p.k, color, barW, BAR_H)}</g>`
       : p
         ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(text)}</text>`
         : ''
@@ -427,14 +426,15 @@ const PHASES: [id: string, name: string, subs: [id: string, name: string][]][] =
 ]
 
 /**
- * Where a task stands on the delivery path: the phase it is in, how many of that phase's substates it reached (a
- * substate is an achievement, so `start` is none), whether it is past the last one, and a needs-attention or parked flag.
+ * Where a task stands on the delivery path: the phase it is in (-1 when the board reports none, never a guess), how many
+ * of that phase's substates it reached (a substate is an achievement, so `start` is none), whether it is past the last
+ * one, and a needs-attention or parked flag.
  */
 export const pathOf = (t: HeldTask) => {
   const isFinal = (t.phase === 'review_fix' && t.substate === 'review_recorded') || t.lane === 'review' || t.lane === 'done'
   const found = PHASES.findIndex(([id]) => id === t.phase)
-  const phase = found < 0 ? (isFinal ? PHASES.length - 1 : 0) : found
-  const at = PHASES[phase]![2].findIndex(([id]) => id === t.substate) + 1
+  const phase = found < 0 && isFinal ? PHASES.length - 1 : found
+  const at = (PHASES[phase]?.[2] ?? []).findIndex(([id]) => id === t.substate) + 1
   const flag = t.lane === 'needs_attention' ? 'bad' : t.lane === 'waiting' ? 'hold' : ''
   const why = flag === 'bad' ? t.reason || 'needs attention' : flag === 'hold' ? `parked · until ${t.waitingOn.join(', ') || 'unblocked'}` : ''
 
@@ -444,6 +444,9 @@ export const pathOf = (t: HeldTask) => {
 /** The tests a task's substate proves: RED once the failing test is proven, GREEN from green on; null before either. */
 export const testsOf = (t: HeldTask): { text: string; color: string } | null => {
   const { phase, at, isFinal } = pathOf(t)
+  if (phase < 0) {
+    return null
+  }
   if (isFinal || phase > 0 || at >= 3) {
     return { text: 'tests GREEN', color: SP.ok }
   }
@@ -455,19 +458,21 @@ export const testsOf = (t: HeldTask): { text: string; color: string } | null => 
 const DC: Record<string, string> = { done: SP.ok, now: SP.run, bad: SP.fail, hold: SP.hold, '': SP.track }
 const TC: Record<string, string> = { done: SP.slate, now: SP.runText, bad: SP.failText, hold: SP.holdText, '': SP.slate }
 
-// A ring on the page's navy with a core at 34% of r; a step not started idles at .45.
+// A ring on the page's navy with a core at 34% of r; a step not started idles at .45, and the step that runs pulses its ring.
 const orb = (cx: number, cy: number, size: number, st: string) => {
   const o = st ? 1 : 0.45
 
   return (
-    `<g transform="translate(${cx},${cy}) scale(${size / 12})"><circle r="5" fill="${SP.navy}" stroke="${DC[st]}" stroke-opacity="${0.85 * o}"/>` +
-    `<circle r="1.7" fill="${DC[st]}" fill-opacity="${0.9 * o}"/></g>`
+    `<g transform="translate(${cx},${cy}) scale(${size / 12})">` +
+    (st === 'now' ? `<circle class="ping" r="5" fill="none" stroke="${DC[st]}"/>` : '') +
+    `<circle r="5" fill="${SP.navy}" stroke="${DC[st]}" stroke-opacity="${0.85 * o}"/>` +
+    `<circle${st === 'now' ? ' class="live"' : ''} r="1.7" fill="${DC[st]}" fill-opacity="${0.9 * o}"/></g>`
   )
 }
 
-// A DAG link: dashed, from one step's colour to the next, streaming while either end runs.
+// A DAG link: dashed, from one step's colour to the next, streaming only into the step that runs.
 const link = (id: string, x1: number, x2: number, y: number, a: string, b: string) => {
-  const isHot = a === 'now' || b === 'now'
+  const isHot = b === 'now'
 
   return (
     `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x1}" x2="${x2}" y1="0" y2="0"><stop offset="0" stop-color="${DC[a]}"/><stop offset="1" stop-color="${DC[b]}"/></linearGradient>` +
@@ -475,7 +480,9 @@ const link = (id: string, x1: number, x2: number, y: number, a: string, b: strin
   )
 }
 
-const STREAM = '.hot{animation:st .42s linear infinite}@keyframes st{to{stroke-dashoffset:-6}}'
+const STREAM =
+  '.hot{animation:st .42s linear infinite}@keyframes st{to{stroke-dashoffset:-6}}' +
+  '.ping{transform-box:fill-box;transform-origin:center;animation:pg 1.6s ease-out infinite}@keyframes pg{from{transform:scale(1);opacity:.7}to{transform:scale(2.1);opacity:0}}'
 
 type Node = { st: string; w: number; draw: (x: number) => string }
 
@@ -497,11 +504,23 @@ const chain = (nodes: Node[], x0: number, y: number, room: number, prefix: strin
   return out.join('')
 }
 
-// The two path rows: the phases, then the current phase's substates and the flag's note.
+const PATH_HEIGHT = 58
+const UNREPORTED_HEIGHT = 30
+
+// The two path rows: the phases reached so far, then the current phase's substates and the flag's note. A task the
+// board reports no phase for gets one line saying so, never a guessed phase.
 const pathRows = (t: HeldTask, W: number) => {
   const { phase, at, isFinal, flag, why } = pathOf(t)
   const room = W - 24
-  const phases = PHASES.map(([, name, subs], i): Node => {
+  if (phase < 0) {
+    const said = fit(['Delivery phase not reported by the board', why].filter(Boolean).join(' · '), 11.5, room)
+
+    return {
+      h: UNREPORTED_HEIGHT,
+      body: `<text x="12" y="19" font-family="${FONT}" font-size="11.5" fill="${flag === 'bad' ? SP.failText : flag === 'hold' ? SP.holdText : SP.slate}">${xml(said)}</text>`,
+    }
+  }
+  const phases = PHASES.slice(0, isFinal ? PHASES.length : phase + 1).map(([, name, subs], i): Node => {
     const st = flag && i === phase ? flag : i < phase || isFinal ? 'done' : i === phase ? 'now' : ''
     const n = `${i < phase || isFinal ? subs.length : i === phase ? at : 0}/${subs.length}`
     const nameW = Math.ceil(width(name, 12, false, 600))
@@ -530,19 +549,23 @@ const pathRows = (t: HeldTask, W: number) => {
   const noteW = note ? Math.ceil(width(note, 11)) + 12 : 0
   const noteColor = flag === 'bad' ? SP.failText : SP.holdText
 
-  return (
-    chain(phases, 12, 16, room, 'lp') +
-    chain(steps, 12, 39, Math.min(room - noteW, stepsW + 240), 'ls') +
-    (note
-      ? `<text x="${12 + Math.min(room - noteW, stepsW + 240) + 12}" y="${43}" font-family="${FONT}" font-size="11" fill="${noteColor}">${xml(note)}</text>`
-      : '')
-  )
+  return {
+    h: PATH_HEIGHT,
+    body:
+      chain(phases, 12, 16, Math.min(room, phaseRoom(phases)), 'lp') +
+      chain(steps, 12, 39, Math.min(room - noteW, stepsW + 240), 'ls') +
+      (note
+        ? `<text x="${12 + Math.min(room - noteW, stepsW + 240) + 12}" y="${43}" font-family="${FONT}" font-size="11" fill="${noteColor}">${xml(note)}</text>`
+        : ''),
+  }
 }
 
-// What a pull request's facts say, as chips: its number, its checks, its open threads and how far it is behind main.
+// The phases reached sit 120px apart rather than spreading across the band.
+const phaseRoom = (phases: Node[]) => phases.reduce((sum, n) => sum + n.w, 0) + (phases.length - 1) * 120
+
+// What a pull request's facts say, as chips (its number is the band's native link): its checks, its open threads and how far it is behind main.
 const prChips = (pr: NonNullable<HeldTask['pull']>) => {
-  const chips = [chip(`#${pr.number}`, prColor(pr.checks), true)]
-  chips.push(pr.checks === 'none' ? chip('checks not started', SP.slate) : chip(CHECKS[pr.checks].phrase, CHECKS[pr.checks].color))
+  const chips = [pr.checks === 'none' ? chip('checks not started', SP.slate) : chip(CHECKS[pr.checks].phrase, CHECKS[pr.checks].color)]
   if (pr.threads !== null) {
     chips.push(pr.threads ? chip(`${pr.threads} open ${pr.threads === 1 ? 'thread' : 'threads'}`, SP.run) : chip('no open threads', SP.ok))
   }
@@ -570,10 +593,10 @@ const strip = (y: number, W: number, pieces: Piece[], gapX: number) => {
 export const BAND_HEIGHT = 34
 
 /**
- * The band's first line, drawn left of its native tools: the held task's lane dot, ID, title and AC bar, or the line that
+ * The band's first line, its native tools laid over its right `tools` pixels: the held task's lane dot, ID, title and AC bar, or the line that
  * says no task is held. The band's own Box draws the frame, so this draws none.
  */
-export const bandHeadSvg = (t: HeldTask | null, W: number) => {
+export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
   const H = BAND_HEIGHT
   const mid = H / 2
   if (!t) {
@@ -581,7 +604,7 @@ export const bandHeadSvg = (t: HeldTask | null, W: number) => {
       W,
       H,
       false,
-      `<text x="10" y="${mid + 4.5}" font-family="${FONT}" font-size="13" fill="${SP.slate}">${xml(fit('No task held — the band fills once this session claims one.', 13, W - 20))}</text>`,
+      `<text x="10" y="${mid + 4.5}" font-family="${FONT}" font-size="13" fill="${SP.slate}">${xml(fit('No task held — the band fills once this session claims one.', 13, W - 20 - tools))}</text>`,
     )
   }
   const [, color] = laneOf(t)
@@ -589,13 +612,13 @@ export const bandHeadSvg = (t: HeldTask | null, W: number) => {
   const isLive = t.lane === 'in_progress'
   const idW = Math.ceil(width(t.id, 12, true))
   const barW = p ? (p.k === null ? Math.ceil(width(ratio(p), 11)) : 120) : 0
-  const barX = W - 10 - barW
+  const barX = W - tools - 10 - barW
   const left = 24 + idW + 10
   const bar = !p
     ? ''
     : p.k === null
       ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12, false)}</g>`
+      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
 
   return svg(
     W,
@@ -617,8 +640,9 @@ export const bandBodySvg = (t: HeldTask | null, s: Stats, W: number) => {
   const parts: string[] = []
   let y = 0
   if (t) {
-    parts.push(pathRows(t, W))
-    y = 58
+    const path = pathRows(t, W)
+    parts.push(path.body)
+    y = path.h
     if (t.pull) {
       const pr = strip(y, W, prChips(t.pull), 8)
       parts.push(pr.body)
@@ -633,25 +657,24 @@ export const bandBodySvg = (t: HeldTask | null, s: Stats, W: number) => {
   return { height: y, source: svg(W, y, false, parts.join(''), STREAM) }
 }
 
-/** The band folded to one line: tests chip, cost, turns, the task's chip and its PR's, left of the native tools. */
-export const miniSvg = (t: HeldTask | null, s: Stats, W: number) => {
+/** The band folded to one line: tests chip, cost, turns and the task's chip, its native tools over the right `tools` pixels. */
+export const miniSvg = (t: HeldTask | null, s: Stats, W: number, tools = 0) => {
   const tests = t ? testsOf(t) : null
   const pieces = [
     ...(tests ? [chip(tests.text, tests.color)] : []),
     stat('', money(s.cost)),
     stat('turns', String(s.turns)),
     t ? chip(`${t.id} · ${laneOf(t)[0]}`, laneOf(t)[1], true) : chip('no task held', SP.slate),
-    ...(t?.pull ? [chip(`#${t.pull.number}`, prColor(t.pull.checks), true)] : []),
   ]
 
-  return svg(W, BAND_HEIGHT, false, `<g transform="translate(10,8)">${line(pieces, W - 20, 10)}</g>`)
+  return svg(W, BAND_HEIGHT, false, `<g transform="translate(10,8)">${line(pieces, W - 20 - tools, 10)}</g>`)
 }
 
 export const LEAN_HEIGHT = 26
 
 /**
- * The Board's lean row, drawn right of its native lane dot and ID button: the title (or why it waits), an AC bar with a
- * square tail, and the PR with its checks. The lane is the box around it, so no pill.
+ * The Board's lean row, drawn right of its native lane dot and ID button: the title (or why it waits), a round-ended AC
+ * bar, and the PR with its checks. The lane is the box around it, so no pill.
  */
 export const leanRowSvg = (t: HeldTask, W: number) => {
   const H = LEAN_HEIGHT
@@ -667,7 +690,7 @@ export const leanRowSvg = (t: HeldTask, W: number) => {
     ? ''
     : p.k === null
       ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12, true)}</g>`
+      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
   const checks = t.pull ? CHECKS[t.pull.checks] : null
   const prX = W - prW
 
@@ -734,7 +757,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
     parts.push(label(PAD, y + 9, 'ACCEPTANCE CRITERIA'))
     y += 18
     if (p.k !== null) {
-      parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, Math.min(360, room), 14, false)}</g>`)
+      parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, Math.min(360, room), 14)}</g>`)
       y += 22
     }
     for (const c of t.criteria ?? []) {
@@ -757,7 +780,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
   y += 12 + PAD
   const H = Math.ceil(y)
 
-  return { height: H, source: svg(W, H, t.lane === 'in_progress', card(W, H, color, 0.3, SP.stack, 10) + parts.join('')) }
+  return { height: H, source: svg(W, H, t.lane === 'in_progress', card(W, H, color, 0.16, SP.stack, 14) + parts.join('')) }
 }
 
 /** The card of this session's task atop the Board: its lane, ID and title, criteria as checkboxes, and its pull request. */
@@ -782,7 +805,7 @@ export const currentSvg = (t: HeldTask, W: number) => {
   )
   y += 24
   if (p && p.k !== null) {
-    parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, room, 12, false, 'cc')}</g>`)
+    parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, room, 12, 'cc')}</g>`)
     y += 20
   }
   for (const c of t.criteria ?? []) {
@@ -798,7 +821,7 @@ export const currentSvg = (t: HeldTask, W: number) => {
   const H = Math.ceil(y)
 
   // No glow: the card's own dot pulses in its lane colour, as the mock's `#cur .dot.live` does.
-  const body = card(W, H, SP.ready, 0.1, SP.surface, 10) + parts.join('')
+  const body = card(W, H, SP.ready, 0.1, SP.surface, 14) + parts.join('')
 
   return {
     height: H,
