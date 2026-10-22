@@ -661,10 +661,13 @@ export const LEAN_WIDTH = LEAN_BAR + 10 + LEAN_K + 10 + LEAN_PR
  * The Board's lean row text, the label of the row's one plain Button: the ID (drawn small) and the title, or why it waits,
  * fitted to what the row leaves beside its lean drawing so a long title never widens the button past it.
  */
+// What a row spends outside its text: the lane card's border and padding, the button's padding, the ID's space and the gap to the drawing.
+const ROW_CHROME = 80
+
 export const leanLabel = (t: HeldTask, W: number) => {
   const sub = subline(t)
 
-  return { title: fit(sub.text, 13, W - LEAN_WIDTH - width(t.id, 11, true) - 32), color: sub.color }
+  return { title: fit(sub.text, 13, W - LEAN_WIDTH - width(t.id, 11, true) - ROW_CHROME), color: sub.color }
 }
 
 /**
