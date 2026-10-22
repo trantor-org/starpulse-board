@@ -29,6 +29,9 @@ export const SP = {
   agent: '#a78bfa',
   agentText: '#c4b5fd',
   ready: '#60a5fa',
+  // The row bar's track and its criterion ticks: the slate over the chat grey, solid since a Client's colours take no alpha.
+  barTrack: '#353839',
+  barTick: '#474c50',
   ink0: '#05070d',
 }
 // Every icon the terminal draws: its Nerd Font v3 codepoint, then the plain Unicode character for a terminal without
@@ -695,57 +698,105 @@ const dotMeter = (n: number, k: number, color: string, w: number, h: number, id 
 
 export const LEAN_HEIGHT = 26
 
-// The lean row's right columns, fixed so every row's bar starts at one x: the bar with its k/n pill, and a PR slot kept
-// even when the task has no PR.
-const LEAN_BAR = 90
+// The lean row's right columns: the bar with its k/n pill, and a PR slot kept even when the task has no PR, so every
+// row's bar starts at one x.
 const LEAN_PR = Math.ceil(width('#0000', 11, true)) + 12
-
-// Every lean drawing's width: the bar, a gap and the PR slot.
-export const LEAN_WIDTH = LEAN_BAR + 10 + LEAN_PR
+const LEAN_GAP = 10
+const [BAR_MIN, BAR_MAX] = [40, 600]
+// What a row spends beside its ID and drawing: the lane card's border and padding, the native button's padding and the
+// gap. A guess over the truth leaves a gap by the ID, one under shrinks the drawing to its slot, so it leans over.
+const LEAN_CHROME = 96
 
 /**
- * The Board's lean row text, the label of the row's one plain Button: the ID (drawn small) and the title, or why it waits,
- * fitted to what the row leaves beside its lean drawing so a long title never widens the button past it.
+ * Every row's ID column in mono characters: the longest ID shown, so the bar starts just past the task number and a
+ * longer ID (six digits and up) shortens the bar from its left.
  */
-// What a row spends outside its text: the lane card's border and padding, the button's padding, the ID's space and the gap to the drawing.
-const ROW_CHROME = 80
+export const idChars = (ids: string[]) => Math.max(0, ...ids.map(i => i.length))
 
-export const leanLabel = (t: HeldTask, W: number) => {
-  const sub = subline(t)
+/**
+ * Every lean drawing's width in a pane W wide: the bar takes what the ID column leaves, so one width serves every row and
+ * every bar starts at one x.
+ */
+export const leanWidth = (W: number, ids: string[]) => {
+  const id = width('0'.repeat(idChars(ids)), 13, true)
+  const bar = Math.max(BAR_MIN, Math.min(BAR_MAX, Math.floor(W - id - LEAN_CHROME - LEAN_GAP - LEAN_PR)))
 
-  return { title: fit(sub.text, 13, W - LEAN_WIDTH - width(t.id, 11, true) - ROW_CHROME), color: sub.color }
+  return bar + LEAN_GAP + LEAN_PR
 }
 
 /**
- * The Board's lean drawing, right of the row's text at one width so every bar starts at one x: the dot-field AC bar with
+ * The Board's lean drawing, right of the row's ID at one width so every bar starts at one x: the dot-field AC bar with
  * its k/n pill, and the PR with its checks. The lane is the box around it, so no dot or pill.
  */
-export const leanRowSvg = (t: HeldTask) => {
-  const W = LEAN_WIDTH
+export const leanRowSvg = (t: HeldTask, W: number) => {
   const H = LEAN_HEIGHT
   const mid = H / 2
   const [, color] = laneOf(t)
   const p = progress(t)
   const prX = W - LEAN_PR
-  const barX = prX - 10 - LEAN_BAR
+  const barW = prX - LEAN_GAP
   const isLive = t.lane === 'in_progress'
   const bar = !p
     ? ''
     : p.k === null
-      ? `<text x="${barX + LEAN_BAR}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${dotMeter(p.n, p.k, color, LEAN_BAR, 12)}</g>`
+      ? `<text x="${barW}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
+      : `<g transform="translate(0,${mid - 6})">${dotMeter(p.n, p.k, color, barW, 12)}</g>`
+
+  return svg(W, H, bar + prMark(t, prX, mid), isLive ? TWINKLE : '')
+}
+
+// A lean row's PR: its checks dot and number at x, or nothing while none is open.
+const prMark = (t: HeldTask, x: number, mid: number) => {
   const checks = t.pull ? CHECKS[t.pull.checks] : null
 
-  return svg(
-    W,
-    H,
-    bar +
-      (checks
-        ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${prX + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
-          `<text x="${prX + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
-        : ''),
-    isLive ? TWINKLE : '',
-  )
+  return checks
+    ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${x + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
+        `<text x="${x + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
+    : ''
+}
+
+/**
+ * What a desktop row's bar Client draws from: the criteria done and in all, the lane's colour, the track's, and whether
+ * the lane is live, so its dots twinkle. A seed from the ID keeps each row's dots its own and still across redraws.
+ */
+export const leanBar = (t: HeldTask) => {
+  const p = progress(t)
+
+  return {
+    k: p?.k ?? null,
+    n: p?.n ?? 0,
+    color: laneOf(t)[1],
+    track: SP.barTrack,
+    tick: SP.barTick,
+    isLive: t.lane === 'in_progress',
+    seed: [...t.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 997, 7),
+  }
+}
+
+// The tail's pill slot: the widest pill, or a count of criteria with no checked data, so the PR holds one x.
+const PILL_SLOT = Math.ceil(Math.max(14 + '00/00'.length * 6.2, width('00 criteria', 11))) + 8
+
+// Every tail's width: the pill slot, then the PR slot.
+export const LEAN_TAIL = PILL_SLOT + LEAN_PR
+
+/**
+ * The fixed drawing after a desktop row's bar Client: the k/n pill coloured by lane (a count when no criterion's state is
+ * served), then the PR with its checks, both at one x on every row.
+ */
+export const leanTailSvg = (t: HeldTask) => {
+  const mid = LEAN_HEIGHT / 2
+  const [, color] = laneOf(t)
+  const p = progress(t)
+  const label = p ? ratio(p) : ''
+  const pillW = Math.round(14 + label.length * 6.2)
+  const pill = !p
+    ? ''
+    : p.k === null
+      ? `<text x="0" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(label)}</text>`
+      : `<rect y="${mid - 6}" width="${pillW}" height="12" rx="6" fill="${p.k ? color : SP.track}"/>` +
+        `<text x="${pillW / 2}" y="${mid + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${p.k ? SP.ink0 : SP.slate}">${label}</text>`
+
+  return svg(LEAN_TAIL, LEAN_HEIGHT, pill + prMark(t, PILL_SLOT, mid))
 }
 
 // The PR line of a card: its checks dot, number and phrase, or that none is open yet.
