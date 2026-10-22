@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_TAIL, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, idChars, leanBar, leanRowSvg, leanTailSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, glyphs, idChars, leanRow, leanRowSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -290,6 +290,17 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // A desktop Board row's Client posts its task on a press: that opens the task's card.
+  on('ui.message', async ($, e) => {
+    const d = e.data as { task?: unknown } | null
+    if (typeof d?.task === 'string') {
+      const id = d.task
+      await update($, pickedTask, () => id)
+    }
+
+    return {}
+  })
+
   on('ui.close', { id: KANBAN }, ($, e, next) => {
     endLanes()
 
@@ -389,17 +400,17 @@ export const register: Register = (on, options) => {
 
     return (
       <Box key="band-wrap" flexDirection="column">
-      <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.edge}2e`} backgroundColor={SP.stack} overflow="hidden">
-        {/* The head spans the band and its tools sit over its right edge, as skins lays buttons over its art. */}
-        <Box key="head" position="relative">
+      <Box key="band" flexDirection="column" overflow="hidden">
+        {/* The band draws on the page's own background with no frame; its head is one centred row, the drawing then its tools. */}
+        <Box key="head" flexDirection="row" alignItems="center">
           <Svg
-            source={mini ? miniSvg(t, W, MINI_TOOLS_PX) : bandHeadSvg(t, W, TOOLS_PX)}
+            source={mini ? miniSvg(t, W - MINI_TOOLS_PX, 0) : bandHeadSvg(t, W - TOOLS_PX, 0)}
             alt={t ? alt(t) : 'No task held'}
-            width={W}
+            width={W - (mini ? MINI_TOOLS_PX : TOOLS_PX)}
             height={BAND_HEIGHT}
             isInteractive
           />
-          <Box key="tools" position="absolute" top={0} right={1} flexDirection="row" alignItems="center" gap="xs">
+          <Box key="tools" flexGrow={1} flexDirection="row" justifyContent="flex-end" alignItems="center" gap="xs" paddingX="sm">
             {mini && figures([['', lines[0][1]], lines[5]])}
             {t?.pull && (
               <Text key="pr">
@@ -499,10 +510,10 @@ export const register: Register = (on, options) => {
             const open = found.reduce((sum, l) => sum + l.tasks.length, 0)
             const fold = (state: string) => update($, folded, f => (f.includes(state) ? f.filter(x => x !== state) : [...f, state]))
             const expand = (state: string) => update($, expanded, x => (x.includes(state) ? x.filter(y => y !== state) : [...x, state]))
-            // This session's task has its own card, so its lane row goes and a lane it empties is hidden.
+            // This session's task leads in a lane of its own drawn like the rest, so its row leaves its board lane.
             const current = mine?.[0] ?? null
-            const lanesShown = found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) })).filter(l => l.tasks.length)
-            const card = current ? currentSvg(current, width) : null
+            const session = current ? [{ state: 'session', name: 'This session', tasks: [current] }] : []
+            const lanesShown = [...session, ...found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) }))].filter(l => l.tasks.length)
             const shownIds = lanesShown.flatMap(l => l.tasks.map(t => t.id))
             const [leanW, idW] = [leanWidth(width, shownIds), idChars(shownIds)]
 
@@ -514,10 +525,9 @@ export const register: Register = (on, options) => {
                   <Box flexGrow={1} />
                   <Text color={SP.muted}>{`${open} ${open === 1 ? 'task' : 'tasks'} · live`}</Text>
                 </Box>
-                {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} isInteractive />}
                 {lanesShown.map(l => {
                   const isFolded = shut.includes(l.state)
-                  const [laneName, color] = LANE_STYLES[l.state] ?? [l.name, SP.slate]
+                  const [laneName, color] = l.state === 'session' && current ? ['This session', laneOf(current)[1]] : (LANE_STYLES[l.state] ?? [l.name, SP.slate])
                   const count = `${l.tasks.length}${l.state === 'done' ? ' · last 24h' : ''}`
                   // A busy lane draws its first rows only, so the pane stays short and few bars animate, until "Show N more".
                   const isWhole = shown.includes(l.state)
@@ -527,8 +537,8 @@ export const register: Register = (on, options) => {
                   return (
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
                       {/* A desktop draws any Button as a native one sized to its label, so the lane head is a flat full-width
-                          row with only its fold arrow a button; its tasks share one silver-edged card, each row one plain button
-                          (the ID, padded to one column) with its bar right after, so every bar starts at one x. */}
+                          row with only its fold arrow a button; its tasks share one silver-edged card, each row one Client that
+                          draws the ID, bar, ratio and PR on one line and opens the card on a press anywhere on it. */}
                       <Box key={`head-${l.state}`} flexDirection="row" alignItems="center" gap={1} paddingX={1}>
                         <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
@@ -546,23 +556,22 @@ export const register: Register = (on, options) => {
                           borderColor={`${SP.edge}2e`}
                           hover={{ borderColor: `${SP.edge}55` }}
                         >
-                          {rows.map(t => (
-                            // A desktop draws its native button from the label alone, so the label is the ID, padded with no-break
-                            // spaces to the longest ID so every bar starts at one x; a title there pushed the bar off the pane.
-                            <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
-                              <Button key={`task:${t.id}`} label={t.id.padEnd(idW, '\u00a0')} plain onPress={() => update($, pickedTask, () => t.id)} />
-                              {/* Where a surface runs a Client, the bar is one that flexes into all the ID leaves and draws to
-                                  its own width, then a fixed pill and PR; elsewhere one drawing hangs from the right edge, its
-                                  width a guess the surface caps at the slot. */}
-                              {Client && <Client key={`bar:${t.id}`} module="./bar.tsx" props={leanBar(t)} flexGrow={1} />}
-                              {Client && <Svg source={leanTailSvg(t)} alt={`${alt(t)}. ${t.title}`} width={LEAN_TAIL} height={LEAN_HEIGHT} />}
-                              {!Client && (
+                          {rows.map(t =>
+                            Client ? (
+                              <Box key={`row-${t.id}`} flexDirection="row">
+                                <Client key={`task:${t.id}`} module="./row.tsx" props={leanRow(t, idW)} flexGrow={1} />
+                              </Box>
+                            ) : (
+                              // VS Code and mobile have no Client: the ID is a plain button, padded with no-break spaces so every
+                              // bar starts at one x, and one drawing of the rest hangs from the right edge.
+                              <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
+                                <Button key={`task:${t.id}`} label={t.id.padEnd(idW, '\u00a0')} plain onPress={() => update($, pickedTask, () => t.id)} />
                                 <Box flexGrow={1} flexDirection="row" justifyContent="flex-end">
                                   <Svg source={leanRowSvg(t, leanW)} alt={`${alt(t)}. ${t.title}`} height={LEAN_HEIGHT} />
                                 </Box>
-                              )}
-                            </Box>
-                          ))}
+                              </Box>
+                            ),
+                          )}
                           {rest > 0 && (
                             <Button key={`more:${l.state}`} label={isWhole ? 'Show fewer' : `Show ${rest} more`} plain onPress={() => expand(l.state)} />
                           )}
