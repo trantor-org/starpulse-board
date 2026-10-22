@@ -357,18 +357,6 @@ const chip = (text: string, color: string, isMono = false): Piece => {
   }
 }
 
-// A stat: its name in slate, its value in mono ink.
-const stat = (k: string, v: string): Piece => {
-  const kW = k ? Math.ceil(width(k, 11)) + 5 : 0
-
-  return {
-    w: kW + Math.ceil(width(v, 12, true, 500)),
-    draw: (x, y) =>
-      (k ? `<text x="${x}" y="${y + 12.8}" font-family="${FONT}" font-size="11" fill="${SP.slate}">${xml(k)}</text>` : '') +
-      `<text x="${x + kW}" y="${y + 13}" font-family="${MONO}" font-size="12" font-weight="500" fill="${SP.inkHi}">${xml(v)}</text>`,
-  }
-}
-
 // Pieces laid left to right from 0, wrapping at `room`; the height is from the top of the first line.
 const flow = (pieces: Piece[], room: number, gapX: number, gapY = 6, h = 18) => {
   let x = 0
@@ -407,15 +395,16 @@ export const kfmt = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(2)}M` : `${(
 
 export const NO_STATS: Stats = { turns: 0, cost: 0, last: 0, tokens: 0, output: 0, agentMs: 0, cacheRead: 0, inputAll: 0 }
 
-const statPieces = (s: Stats) => [
-  stat('cost', money(s.cost)),
-  stat('last turn', money(s.last)),
-  stat('avg/turn', money(s.turns ? s.cost / s.turns : 0)),
-  stat('tokens', kfmt(s.tokens)),
-  stat('output', kfmt(s.output)),
-  stat('turns', String(s.turns)),
-  stat('agent', `${Math.round(s.agentMs / 60000)}m`),
-  stat('reuse', `${s.inputAll ? Math.round((100 * s.cacheRead) / s.inputAll) : 0}%`),
+/** The session's stats as key and value, drawn as native text so a step changes only the numbers. */
+export const statLines = (s: Stats): [key: string, value: string][] => [
+  ['cost', money(s.cost)],
+  ['last turn', money(s.last)],
+  ['avg/turn', money(s.turns ? s.cost / s.turns : 0)],
+  ['tokens', kfmt(s.tokens)],
+  ['output', kfmt(s.output)],
+  ['turns', String(s.turns)],
+  ['agent', `${Math.round(s.agentMs / 60000)}m`],
+  ['reuse', `${s.inputAll ? Math.round((100 * s.cacheRead) / s.inputAll) : 0}%`],
 ]
 
 // The in-progress machine's phases and each one's subflow states, in order (`starpulse machine show in-progress`).
@@ -633,37 +622,32 @@ export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
 }
 
 /**
- * The band below its first line: the delivery path's phases and substates, the PR's facts, and the session's stats with
- * the tests chip. With no task held, the stats alone.
+ * The band below its first line: the delivery path's phases and substates, then the PR's facts and the tests chip. It
+ * depends on the task alone, so a step that moves the stats leaves it as it was. With no task held, nothing.
  */
-export const bandBodySvg = (t: HeldTask | null, s: Stats, W: number) => {
-  const parts: string[] = []
-  let y = 0
-  if (t) {
-    const path = pathRows(t, W)
-    parts.push(path.body)
-    y = path.h
-    if (t.pull) {
-      const pr = strip(y, W, prChips(t.pull), 8)
-      parts.push(pr.body)
-      y += pr.h
-    }
+export const bandBodySvg = (t: HeldTask | null, W: number) => {
+  if (!t) {
+    return null
   }
-  const tests = t ? testsOf(t) : null
-  const stats = strip(y, W, [...statPieces(s), ...(tests ? [chip(tests.text, tests.color)] : [])], 14)
-  parts.push(stats.body)
-  y += stats.h
+  const path = pathRows(t, W)
+  const parts = [path.body]
+  let y = path.h
+  const tests = testsOf(t)
+  const facts = [...(t.pull ? prChips(t.pull) : []), ...(tests ? [chip(tests.text, tests.color)] : [])]
+  if (facts.length) {
+    const row = strip(y, W, facts, 8)
+    parts.push(row.body)
+    y += row.h
+  }
 
   return { height: y, source: svg(W, y, false, parts.join(''), STREAM) }
 }
 
-/** The band folded to one line: tests chip, cost, turns and the task's chip, its native tools over the right `tools` pixels. */
-export const miniSvg = (t: HeldTask | null, s: Stats, W: number, tools = 0) => {
+/** The band folded to one line: tests chip and the task's chip, its native tools and stats over the right `tools` pixels. */
+export const miniSvg = (t: HeldTask | null, W: number, tools = 0) => {
   const tests = t ? testsOf(t) : null
   const pieces = [
     ...(tests ? [chip(tests.text, tests.color)] : []),
-    stat('', money(s.cost)),
-    stat('turns', String(s.turns)),
     t ? chip(`${t.id} · ${laneOf(t)[0]}`, laneOf(t)[1], true) : chip('no task held', SP.slate),
   ]
 
