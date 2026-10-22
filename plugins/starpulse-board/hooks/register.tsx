@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_WIDTH, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanLabel, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_WIDTH, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -523,7 +523,7 @@ export const register: Register = (on, options) => {
                     <Box key={`lane-${l.state}`} flexDirection="column" gap="xs">
                       {/* A desktop draws any Button as a native one sized to its label, so the lane head is a flat full-width
                           row with only its fold arrow a button; its tasks share one silver-edged card, each row one plain button
-                          (small ID, title) beside a fixed-width bar, so every bar starts at one x. */}
+                          (the ID alone) beside a fixed-width bar, so every bar starts at one x. */}
                       <Box key={`head-${l.state}`} flexDirection="row" alignItems="center" gap={1} paddingX={1}>
                         <Button key={`lane:${l.state}`} label={isFolded ? '›' : '⌄'} plain onPress={() => fold(l.state)} />
                         <Text bold color={color}>
@@ -541,21 +541,18 @@ export const register: Register = (on, options) => {
                           borderColor={`${SP.edge}2e`}
                           hover={{ borderColor: `${SP.edge}55` }}
                         >
-                          {rows.map(t => {
-                            const lbl = leanLabel(t, width)
-                            return (
-                              <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
-                                <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
-                                  <Text size="caption" mono color={SP.muted}>
-                                    {t.id}
-                                  </Text>{' '}
-                                  <Text color={lbl.color}>{lbl.title}</Text>
-                                </Button>
-                                <Box flexGrow={1} />
-                                <Svg source={leanRowSvg(t)} alt={alt(t)} width={LEAN_WIDTH} height={LEAN_HEIGHT} />
-                              </Box>
-                            )
-                          })}
+                          {rows.map(t => (
+                            // The row draws only the ID: a title sized from an estimated text width pushed the bar off a narrow pane.
+                            <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
+                              <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
+                                <Text mono color={SP.slate}>
+                                  {t.id}
+                                </Text>
+                              </Button>
+                              <Box flexGrow={1} />
+                              <Svg source={leanRowSvg(t)} alt={alt(t)} width={LEAN_WIDTH} height={LEAN_HEIGHT} />
+                            </Box>
+                          ))}
                           {rest > 0 && (
                             <Button key={`more:${l.state}`} label={isWhole ? 'Show fewer' : `Show ${rest} more`} plain onPress={() => expand(l.state)} />
                           )}

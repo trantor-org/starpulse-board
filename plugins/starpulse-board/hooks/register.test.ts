@@ -1064,18 +1064,18 @@ test('desktop Board tab: a text header and flat lane headers, lean row drawings 
   await ui.unmount()
 })
 
-test('desktop Board tab: the whole row is one plain button, a small ID and the title, with no Details, Close or status pill', async ($, on) => {
+test('desktop Board tab: the whole row is one plain button drawing only the ID, with no title, Details, Close or status pill', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
 
   const buttons = await everyButton(ui)
   expect(buttons.map(b => String(b.props.label))).not.toContain('Details')
   expect(buttons.map(b => String(b.props.label))).not.toContain('Close')
   const pick = (await ui.find({ key: 'task:TASK-7' })) as any
-  expect(pick?.props).toMatchObject({ label: 'TASK-7 Busy one', plain: true })
-  const [id, title] = pick.children.filter((c: any) => typeof c === 'object')
-  expect(id.props, 'the ID is drawn small').toMatchObject({ size: 'caption', mono: true })
-  expect(id.children.join('')).toBe('TASK-7')
-  expect(title.children.join('')).toContain('Busy one')
+  expect(pick?.props, 'the title stays in the accessible label').toMatchObject({ label: 'TASK-7 Busy one', plain: true })
+  const drawn = pick.children.filter((c: any) => typeof c === 'object')
+  expect(drawn, 'a title would push the bar off a narrow pane').toHaveLength(1)
+  expect(drawn[0].props).toMatchObject({ mono: true })
+  expect(drawn[0].children.join('')).toBe('TASK-7')
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
   expect(row.props.source, 'the title lives in the button, not the bar').not.toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
@@ -1254,7 +1254,7 @@ test('Board tab draws its error: an unmeasured dock still draws the Board, every
 })
 
 test('Board tab draws its error: a task it cannot draw shows why in the tab, not a blank pane', async ($, on) => {
-  const broken = board([['in_progress', 'In Progress', [task({ id: 'TASK-9', title: 42 })]]])
+  const broken = board([['in_progress', 'In Progress', [task({ id: 'TASK-9', criteria: [null] })]]])
   const ui = await openKanban($, on, { frame: broken }, 'desktop')
 
   expect((await everyText(ui)).join('|')).toContain('could not draw')
