@@ -1212,6 +1212,21 @@ test('desktop Board tab: a busy lane shows its first six rows until Show N more,
   await ui.unmount()
 })
 
+test('desktop Board tab: a lane lists its most recently active task first, the undated last in board order', async ($, on) => {
+  const pr = (updatedAt: string) => [{ url: `${PULL}/392`, number: 392, checks: 'pending', updatedAt }]
+  const tasks = [
+    task({ id: 'TASK-31', title: 'Undated one', prs: [] }),
+    task({ id: 'TASK-32', title: 'Older one', prs: pr('2026-10-20T08:00:00Z') }),
+    task({ id: 'TASK-33', title: 'Undated two', prs: [] }),
+    task({ id: 'TASK-34', title: 'Newest one', prs: [...pr('2026-10-19T08:00:00Z'), ...pr('2026-10-21T08:00:00Z')] }),
+  ]
+  const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', tasks]]) }, 'desktop')
+
+  const taskKeys = (await everyButton(ui)).map(b => String(b.key)).filter(k => k.startsWith('task:'))
+  expect(taskKeys).toEqual(['task:TASK-34', 'task:TASK-32', 'task:TASK-31', 'task:TASK-33'])
+  await ui.unmount()
+})
+
 test('a move StarPulse marks allowed: false draws no button; an allowed one does', async ($, on) => {
   const ui = await openKanban($, on)
 
