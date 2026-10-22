@@ -596,6 +596,9 @@ const kanbanPane = ($: any, surface = 'terminal') =>
   $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, placement: 'dock' }, requestId: 'starpulse-kanban' })
 
 // The Board tab, opened from /kanban the way a person would. Each test unmounts its drawing.
+// An Svg's drawn width: its width prop, else the markup's own, which a surface caps at the slot.
+const drawnWidth = (s: any) => (s.props.width ?? Number(/^<svg[^>]* width="([\d.]+)"/.exec(s.props.source)?.[1])) as number
+
 const openKanban = async ($: any, on: On, host: Host = {}, surface = 'terminal') => {
   const stream = host.lanes?.[0] ?? feed()
   sessionsHost(on, { lanes: [stream], ...host })
@@ -1193,11 +1196,11 @@ test("desktop Board tab: every row's bar starts at one x, PR or not, whatever th
   const starts = rows.map(r => /<g transform="translate\(([\d.]+),[\d.]+\)"><clipPath/.exec(r.props.source)?.[1]).filter(Boolean)
   expect(starts.length).toBeGreaterThan(1)
   expect(new Set(starts).size).toBe(1)
-  expect(new Set(rows.map(r => r.props.width)).size, 'one drawing width').toBe(1)
+  expect(new Set(rows.map(drawnWidth)).size, 'one drawing width').toBe(1)
   await ui.unmount()
 })
 
-test('desktop Board tab: the bar follows an ID column sized for six-digit IDs, not the pane edge', async ($, on) => {
+test('desktop Board tab: the bar follows an ID column sized for six-digit IDs and fills the row to its edge', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key ?? b.props?.key ?? '').startsWith('row-')) as any[]
   const ids = rows.map(r => r.children.find((c: any) => c?.type === 'Button').children.find((c: any) => typeof c === 'object').children.join(''))
@@ -1206,14 +1209,18 @@ test('desktop Board tab: the bar follows an ID column sized for six-digit IDs, n
   expect(new Set(ids.map(i => i.length)), 'every ID pads to one mono column').toEqual(new Set([11]))
   for (const r of rows) {
     const kids = r.children.filter((c: any) => typeof c === 'object').map((c: any) => c.type)
-    expect(kids.slice(0, 2), 'the bar sits right after the ID, no spacer between').toEqual(['Button', 'Svg'])
+    expect(kids, 'the bar sits right after the ID, no spacer between').toEqual(['Button', 'Box'])
+    const slot = r.children.find((c: any) => c?.type === 'Box')
+    expect(slot.props.flexGrow, 'the bar fills the middle').toBe(1)
+    const bar = slot.children.find((c: any) => c?.type === 'Svg')
+    expect(bar.props.width, 'no fixed width: the surface caps the drawing at its slot, shrinking it rather than overflowing').toBeUndefined()
   }
   await ui.unmount()
 })
 
 test('desktop Board tab: the bar takes the middle of the row, wider on a wider pane, never past its edge', async ($, on) => {
   const widths = async (ui: any) =>
-    ((await ui.findAll({ type: 'Svg' })) as any[]).filter(s => /^TASK-\d+:/.test(s.props.alt)).map(s => s.props.width as number)
+    ((await ui.findAll({ type: 'Svg' })) as any[]).filter(s => /^TASK-\d+:/.test(s.props.alt)).map(drawnWidth)
   const wide = await openKanban($, on, { frame: FULL }, 'desktop')
   const w = await widths(wide)
   await wide.unmount()
@@ -1277,7 +1284,7 @@ test('Board tab draws its error: an unmeasured dock still draws the Board, every
   const ui = await unmeasured($)
 
   expect((await everyText(ui)).join('|')).toContain('BOARD')
-  const widths = (await ui.findAll({ type: 'Svg' })).map((s: any) => s.props.width)
+  const widths = (await ui.findAll({ type: 'Svg' })).map(drawnWidth)
   expect(widths.length).toBeGreaterThan(0)
   expect(widths.every((w: number) => Number.isFinite(w) && w > 0 && w <= 4096), String(widths)).toBe(true)
   await ui.unmount()

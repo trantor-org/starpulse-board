@@ -552,7 +552,11 @@ export const register: Register = (on, options) => {
                                   {t.id.padEnd(idW, '\u00a0')}
                                 </Text>
                               </Button>
-                              <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} width={leanW} height={LEAN_HEIGHT} />
+                              {/* No width: the surface caps the drawing at this slot, so a pane narrower than leanW guessed shrinks
+                                  the bar instead of pushing it past the edge. */}
+                              <Box flexGrow={1}>
+                                <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} height={LEAN_HEIGHT} />
+                              </Box>
                             </Box>
                           ))}
                           {rest > 0 && (
