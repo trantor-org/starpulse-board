@@ -14,9 +14,10 @@ documents the band and the Board pane.
 ## Board mod
 
 At session start the Board tab opens in the dock without taking the keys. On the terminal it draws cells, with the
-`glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws a text header, a Current task card for
-the task this session holds (its lane, criteria, progress bar and pull request), then one lean Svg row per task on a
-navy root, with native buttons (the task ID, lane fold arrows, Start session, Move to ...) and no icon font or key hints.
+`glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws a text header, a THIS SESSION lane
+holding the task this session holds, then the board's lanes, each task one line (its ID, a flat bar of criteria done,
+k/n, and the pull request with its checks dot) that opens the task's card from a press anywhere on it; lane fold
+arrows, Start session and Move to ... stay native buttons, with no icon font or key hints.
 
 Above the prompt an always-on band draws the held task: its lane, ID, title and bar, the delivery phases and substates
 the board serves, the pull request's checks, threads and freshness, and the session's cost, turns and tokens. On Desktop
