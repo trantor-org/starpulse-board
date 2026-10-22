@@ -1,9 +1,10 @@
 import type { Checks, HeldTask, Stats } from '../types'
 
-// StarPulse's :root tokens (starpulse/web/src/style.css). An Svg is drawn isolated, so it spells them out.
+// StarPulse's :root tokens (starpulse/web/src/style.css), its navy fills swapped for Claude Code's dark greys so the band and
+// the Board sit in the app. An Svg is drawn isolated, so it spells them out.
 export const SP = {
-  navy: '#0b1224',
-  bg2: '#0d1528',
+  navy: '#262624',
+  bg2: '#1f1e1d',
   ink: '#dbe4f3',
   inkHi: '#e2e8f0',
   ink3: '#b8c4d8',
@@ -12,8 +13,8 @@ export const SP = {
   dim: '#64748b',
   track: '#334155',
   faint: '#475569',
-  surface: '#0c1322',
-  stack: '#11192b',
+  surface: '#2b2a27',
+  stack: '#30302e',
   ghost: '#3f4c66',
   ok: '#34d399',
   okHi: '#6ee7b7',

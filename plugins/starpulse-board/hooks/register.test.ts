@@ -648,12 +648,12 @@ test('In Progress, Review and Needs attention start open; Ready, Waiting and Don
   await ui.unmount()
 })
 
-// A pane body scrolls its tree, so flexGrow has no height to fill: the root takes the body's rows to paint the dock navy to its floor.
+// The dock's own grey is Claude Code's: the Board paints no root fill over it.
 for (const [state, noFrame] of [['lanes', false], ['no frame yet', true]] as const) {
-  test(`the Board tab paints navy down the whole dock body with ${state}`, async ($, on) => {
+  test(`the Board tab draws on the dock's own grey with ${state}`, async ($, on) => {
     const ui = await openKanban($, on, { noFrame })
 
-    expect((await ui.find({ key: 'board-fill' }))?.props).toMatchObject({ minHeight: PANE_PROPS.scroll.bodyRows, backgroundColor: '#0b1224' })
+    expect((await ui.find({ key: 'board-fill' }))?.props.backgroundColor).toBeUndefined()
     await ui.unmount()
   })
 }
@@ -981,7 +981,6 @@ test('a move to Done that StarPulse refuses toasts its reason and leaves the Boa
 })
 
 // No fill: a `plain` Button draws no chrome and nothing sets a background, so the terminal's own background shows through.
-// The one exception is the Board pane's root Box, filled navy to cover the dock's own grey (the operator's call).
 const fills = async (tree: any, root?: string) => {
   const buttons = await tree.findAll({ type: 'Button' })
   expect(buttons.length).toBeGreaterThan(0)
@@ -992,11 +991,11 @@ const fills = async (tree: any, root?: string) => {
   expect(filled).toEqual(root ? [`Box ${root}`] : [])
 }
 
-test('the Board tab fills its root navy to cover the dock grey, every Button is plain and nothing else sets a background', async ($, on) => {
+test('the Board tab sets no background: every Button is plain and the dock grey shows through', async ($, on) => {
   const ui = await openKanban($, on, { frame: COLOURED })
   await ui.press({ key: 'task:TASK-7' })
 
-  await fills(ui, '#0b1224')
+  await fills(ui)
   await ui.unmount()
 })
 
@@ -1036,7 +1035,7 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   expect(seen).not.toMatch(NERD_ICON)
   expect(seen).not.toContain('[')
   expect(seen).not.toContain('✕')
-  expect((await ui.findAll({})).filter((el: any) => el.props.backgroundColor).map((el: any) => el.props.backgroundColor)).toEqual(['#11192b'])
+  expect((await ui.findAll({})).filter((el: any) => el.props.backgroundColor).map((el: any) => el.props.backgroundColor)).toEqual(['#30302e'])
   await ui.unmount()
 })
 
@@ -1051,7 +1050,7 @@ test('desktop Board tab: a text header and flat lane headers, lean row drawings 
   expect(seen).toContain('BOARD')
   expect(seen).toContain('3 tasks · live')
   expect(seen).toContain('IN PROGRESS')
-  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor)).toBe('#11192b')
+  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor)).toBe('#30302e')
   expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.borderStyle), 'a row has no box of its own').toBeUndefined()
   const buttons = await everyButton(ui)
   expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready', 'task:TASK-7']))

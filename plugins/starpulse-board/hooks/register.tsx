@@ -547,10 +547,9 @@ export const register: Register = (on, options) => {
               </Box>
             )
           }
-          // The dock paints grey behind every cell a pane draws, and a pane body scrolls its tree, so flexGrow has no height to fill:
-          // the root takes the body's rows and fills them navy, and a longer Board still scrolls.
+          // The dock paints Claude Code's own grey behind every cell a pane draws; the Board draws on it with no fill of its own.
           const fill = (children: RenderChildren) => (
-            <Box key="board-fill" flexDirection="column" minHeight={e.props.scroll.bodyRows} backgroundColor={SP.navy}>
+            <Box key="board-fill" flexDirection="column" minHeight={e.props.scroll.bodyRows}>
               {children}
             </Box>
           )
