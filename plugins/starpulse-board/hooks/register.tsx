@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, kfmt, leanRowSvg, laneIcon, laneOf, miniSvg, money, paneSvg, progress, ratio, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -123,6 +123,8 @@ const pxWidth = (columns: number, lo: number, hi: number) => (Number.isFinite(co
 // over its head drawing; and the room a Board row's lane dot and ID button take beside its lean row.
 const CELL_PX = 7.5
 const TOOLS_PX = 96
+// Folded, the tools also carry the cost and turns.
+const MINI_TOOLS_PX = 230
 const ID_PX = 124
 
 type Terminal = ElementTable<'terminal'>
@@ -302,6 +304,10 @@ export const register: Register = (on, options) => {
     const u = result.usage
     const input = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0
     const output = u?.output_tokens ?? 0
+    // A step that moved nothing writes nothing, so the band's readers don't redraw for it.
+    if (!input && !output && (usd === undefined || usd === (await read($, stats)).cost)) {
+      return result
+    }
     await update($, stats, (s): Stats => {
       const cost = usd ?? s.cost
       const spent = cost - s.cost
@@ -337,10 +343,13 @@ export const register: Register = (on, options) => {
     }
     const found = (await read($, tasks)) ?? []
     const { Box, Button, Text, Svg, Link } = $.ui.resolve(e) as Remote
+    // The plugins beneath (a skin, the engine's own row) draw below the band, as claude-skins composes its own.
+    const theirs = await next(e)
     if (e.surface === 'terminal') {
       const opened = await read($, openTask)
 
       return (
+        <Box key="band-wrap" flexDirection="column">
         <Box key="band" flexDirection="column">
           {found.map(t => {
             const label = opened === t.id ? 'Close' : 'Details'
@@ -356,27 +365,39 @@ export const register: Register = (on, options) => {
           })}
           {!found.length && <Text color={SP.slate}>No task held</Text>}
         </Box>
+        {theirs}
+        </Box>
       )
     }
     const t = found[0] ?? null
     const s = await read($, stats)
     const mini = await read($, isMini)
     const W = pxWidth(e.props.bodyColumns, 420, 1100)
-    const body = mini ? null : bandBodySvg(t, s, W)
-    const said = `cost ${money(s.cost)}, tokens ${kfmt(s.tokens)}, turns ${s.turns}`
+    // The drawings depend on the task alone; the stats are native text, so a step changes only the numbers.
+    const body = mini ? null : bandBodySvg(t, W)
+    const figures = (pairs: [string, string][]) =>
+      pairs.map(([k, v]) => (
+        <Box key={`stat-${k || 'cost'}`} flexDirection="row" alignItems="center" gap="xs">
+          {k && <Text color={SP.slate} size="caption">{k}</Text>}
+          <Text color={SP.inkHi} size="footnote" weight="medium" mono tabular>{v}</Text>
+        </Box>
+      ))
+    const lines = statLines(s)
 
     return (
+      <Box key="band-wrap" flexDirection="column">
       <Box key="band" flexDirection="column" borderStyle="round" borderColor={`${SP.ready}33`} backgroundColor={SP.stack} overflow="hidden">
         {/* The head spans the band and its tools sit over its right edge, as skins lays buttons over its art. */}
         <Box key="head" position="relative">
           <Svg
-            source={mini ? miniSvg(t, s, W, TOOLS_PX) : bandHeadSvg(t, W, TOOLS_PX)}
-            alt={t ? `${alt(t)}. ${said}` : `No task held. ${said}`}
+            source={mini ? miniSvg(t, W, MINI_TOOLS_PX) : bandHeadSvg(t, W, TOOLS_PX)}
+            alt={t ? alt(t) : 'No task held'}
             width={W}
             height={BAND_HEIGHT}
             isInteractive
           />
           <Box key="tools" position="absolute" top={0} right={1} flexDirection="row" alignItems="center" gap="xs">
+            {mini && figures([['', lines[0][1]], lines[5]])}
             {t?.pull && (
               <Text key="pr">
                 <Link href={`https://github.com/${t.pull.repo}/pull/${t.pull.number}`} label={`#${t.pull.number}`} />
@@ -385,7 +406,14 @@ export const register: Register = (on, options) => {
             <Button key="fold" label={mini ? '▴' : '▾'} onPress={() => update($, isMini, x => !x)} />
           </Box>
         </Box>
-        {body && <Svg source={body.source} alt={t ? `Delivery path of ${t.id}, its pull request and the session's stats` : said} width={W} height={body.height} isInteractive />}
+        {body && <Svg key="body" source={body.source} alt={`Delivery path of ${t?.id}, its pull request and tests`} width={W} height={body.height} isInteractive />}
+        {!mini && (
+          <Box key="stats" flexDirection="row" flexWrap="wrap" alignItems="center" gap="md" paddingX="sm" paddingY="xs">
+            {figures(lines)}
+          </Box>
+        )}
+      </Box>
+      {theirs}
       </Box>
     )
   })

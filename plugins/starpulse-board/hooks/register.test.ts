@@ -251,19 +251,35 @@ test('terminal row: no checked data draws a count without a bar, no criteria dra
 
 const svgs = async (ui: any) => ((await ui.findAll({ type: 'Svg' })) as any[]).map(x => x.props as { source: string; alt: string })
 
-test('desktop band: the head carries the lane dot, ID, title and bar; the body the PR and stats', async ($, on) => {
+test('desktop band: the head carries the lane dot, ID, title and bar; the body the PR; native text the stats', async ($, on) => {
   serve(on, BOARD)
 
   await $.command.run(RUN)
-  const [head, body] = await svgs(await band($, 'desktop'))
+  const ui = await band($, 'desktop')
+  const [head, body] = await svgs(ui)
 
-  expect(head?.alt).toContain('PROJ-1: In Progress, 2 of 4 criteria, PR #392 checks running. cost ')
+  expect(head?.alt).toBe('PROJ-1: In Progress, 2 of 4 criteria, PR #392 checks running')
   for (const text of ['PROJ-1', 'Add the verbs', '#fbbf24']) {
     expect(head?.source, text).toContain(text)
   }
   expect(body?.source).toContain('checks running')
-  expect(body?.source).toContain('turns')
+  expect(body?.source).not.toContain('turns')
+  for (const text of ['cost', 'turns', 'reuse', '$0.00']) {
+    expect(await ui.find({ type: 'Text', text }), text).toBeDefined()
+  }
 })
+
+for (const surface of ['desktop', 'terminal']) {
+  test(`${surface} band: the plugins beneath still draw, below the band`, async ($, on) => {
+    serve(on, BOARD)
+
+    await $.command.run(RUN)
+    const ui = await band($, surface)
+
+    expect(await ui.find({ key: 'band' })).toBeDefined()
+    expect(await ui.find({ key: 'engine' })).toBeDefined()
+  })
+}
 
 test('the band cost counts up with each main-agent step, before the turn ends', async ($, on) => {
   serve(on, BOARD)
@@ -283,14 +299,17 @@ test('the band cost counts up with each main-agent step, before the turn ends', 
 
   await $.command.run(RUN)
   const ui = await band($, 'desktop')
+  const drawn = await svgs(ui)
   usd = 0.25
   await step(0)
-  expect((await svgs(ui))[0]?.alt).toContain('cost $0.25, tokens 0.0k, turns 0')
+  expect(await ui.find({ type: 'Text', text: '$0.25' })).toBeDefined()
   usd = 0.5
   await step(0, 'sub-1')
-  expect((await svgs(ui))[0]?.alt).toContain('cost $0.25')
+  expect(await ui.find({ type: 'Text', text: '$0.25' })).toBeDefined()
   await step(1)
-  expect((await svgs(ui))[0]?.alt).toContain('cost $0.50, tokens 0.0k, turns 0')
+  expect(await ui.find({ type: 'Text', text: '$0.50' })).toBeDefined()
+  // The drawings hold still while the numbers move: a step redraws text, not the band's art.
+  expect(await svgs(ui)).toEqual(drawn)
 })
 
 test('desktop band: a Needs attention reason shows on the path', async ($, on) => {
