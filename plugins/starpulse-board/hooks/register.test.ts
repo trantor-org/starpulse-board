@@ -1200,13 +1200,14 @@ test("desktop Board tab: every row's bar starts at one x, PR or not, whatever th
   await ui.unmount()
 })
 
-test('desktop Board tab: the bar fills the row from its right edge toward an ID column sized for six-digit IDs', async ($, on) => {
+test('desktop Board tab: the bar fills the row from its right edge to just past the longest task number', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key ?? b.props?.key ?? '').startsWith('row-')) as any[]
   const ids = rows.map(r => r.children.find((c: any) => c?.type === 'Button').children.find((c: any) => typeof c === 'object').children.join(''))
 
   expect(rows.length).toBeGreaterThan(1)
-  expect(new Set(ids.map(i => i.length)), 'every ID pads to one mono column').toEqual(new Set([11]))
+  const longest = Math.max(...ids.map(i => i.trimEnd().length))
+  expect(new Set(ids.map(i => i.length)), 'every ID pads to the longest shown, so the bar starts right after the task number').toEqual(new Set([longest]))
   for (const r of rows) {
     const kids = r.children.filter((c: any) => typeof c === 'object').map((c: any) => c.type)
     expect(kids, 'the bar sits right after the ID, no spacer between').toEqual(['Button', 'Box'])
@@ -1229,7 +1230,7 @@ test('desktop Board tab: the bar takes the middle of the row, wider on a wider p
 
   expect(n.length).toBeGreaterThan(0)
   expect(new Set(n).size, 'one drawing width').toBe(1)
-  expect(Math.max(...n), 'a narrow pane shortens the bar from its left, keeping room for the ID and the button').toBeLessThanOrEqual(Math.floor(39 * 7.5) - 160)
+  expect(Math.max(...n), 'a narrow pane shortens the bar from its left, keeping room for the ID and the button').toBeLessThanOrEqual(Math.floor(39 * 7.5) - 150)
   expect(Math.min(...w), 'a wide pane lends the bar the space the title gave up').toBeGreaterThan(Math.max(...n) + 200)
   await narrow.unmount()
 })

@@ -704,11 +704,11 @@ const [BAR_MIN, BAR_MAX] = [40, 600]
 // gap. A guess over the truth leaves a gap by the ID, one under shrinks the drawing to its slot, so it leans over.
 const LEAN_CHROME = 96
 
-// The Board's ID column, sized for a six-digit ID (`TASK-123456`) so the bars hold one x as the board grows.
-const ID_CHARS = 11
-
-/** Every row's ID column in mono characters: six digits' worth, or the longest ID past that. */
-export const idChars = (ids: string[]) => Math.max(ID_CHARS, ...ids.map(i => i.length))
+/**
+ * Every row's ID column in mono characters: the longest ID shown, so the bar starts just past the task number and a
+ * longer ID (six digits and up) shortens the bar from its left.
+ */
+export const idChars = (ids: string[]) => Math.max(0, ...ids.map(i => i.length))
 
 /**
  * Every lean drawing's width in a pane W wide: the bar takes what the ID column leaves, so one width serves every row and
