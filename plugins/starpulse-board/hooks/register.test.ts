@@ -1200,7 +1200,7 @@ test("desktop Board tab: every row's bar starts at one x, PR or not, whatever th
   await ui.unmount()
 })
 
-test('desktop Board tab: the bar follows an ID column sized for six-digit IDs and fills the row to its edge', async ($, on) => {
+test('desktop Board tab: the bar fills the row from its right edge toward an ID column sized for six-digit IDs', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key ?? b.props?.key ?? '').startsWith('row-')) as any[]
   const ids = rows.map(r => r.children.find((c: any) => c?.type === 'Button').children.find((c: any) => typeof c === 'object').children.join(''))
@@ -1211,7 +1211,7 @@ test('desktop Board tab: the bar follows an ID column sized for six-digit IDs an
     const kids = r.children.filter((c: any) => typeof c === 'object').map((c: any) => c.type)
     expect(kids, 'the bar sits right after the ID, no spacer between').toEqual(['Button', 'Box'])
     const slot = r.children.find((c: any) => c?.type === 'Box')
-    expect(slot.props.flexGrow, 'the bar fills the middle').toBe(1)
+    expect(slot.props, 'the bar fills the middle from the right edge, so a narrow pane takes from its left end').toMatchObject({ flexGrow: 1, justifyContent: 'flex-end' })
     const bar = slot.children.find((c: any) => c?.type === 'Svg')
     expect(bar.props.width, 'no fixed width: the surface caps the drawing at its slot, shrinking it rather than overflowing').toBeUndefined()
   }
@@ -1228,8 +1228,8 @@ test('desktop Board tab: the bar takes the middle of the row, wider on a wider p
   const n = await widths(narrow)
 
   expect(n.length).toBeGreaterThan(0)
-  expect(new Set(n), 'a narrow pane keeps the shortest bar').toEqual(new Set([Math.min(...n)]))
-  expect(Math.max(...n), 'a narrow pane keeps room for the ID and the button').toBeLessThanOrEqual(Math.floor(39 * 7.5) - 140)
+  expect(new Set(n).size, 'one drawing width').toBe(1)
+  expect(Math.max(...n), 'a narrow pane shortens the bar from its left, keeping room for the ID and the button').toBeLessThanOrEqual(Math.floor(39 * 7.5) - 160)
   expect(Math.min(...w), 'a wide pane lends the bar the space the title gave up').toBeGreaterThan(Math.max(...n) + 200)
   await narrow.unmount()
 })

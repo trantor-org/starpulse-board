@@ -552,9 +552,9 @@ export const register: Register = (on, options) => {
                                   {t.id.padEnd(idW, '\u00a0')}
                                 </Text>
                               </Button>
-                              {/* No width: the surface caps the drawing at this slot, so a pane narrower than leanW guessed shrinks
-                                  the bar instead of pushing it past the edge. */}
-                              <Box flexGrow={1}>
+                              {/* The drawing hangs from the row's right edge, its bar reaching left toward the ID; no width, so the
+                                  surface caps it at this slot and a pane narrower than leanW guessed shrinks it rather than overflowing. */}
+                              <Box flexGrow={1} flexDirection="row" justifyContent="flex-end">
                                 <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} height={LEAN_HEIGHT} />
                               </Box>
                             </Box>

@@ -699,10 +699,10 @@ export const LEAN_HEIGHT = 26
 // row's bar starts at one x.
 const LEAN_PR = Math.ceil(width('#0000', 11, true)) + 12
 const LEAN_GAP = 10
-const [BAR_MIN, BAR_MAX] = [90, 600]
+const [BAR_MIN, BAR_MAX] = [40, 600]
 // What a row spends beside its ID and drawing: the lane card's border and padding, the native button's padding and the
-// gap. Guessed close, since the surface shrinks a drawing wider than its slot rather than letting it overflow.
-const LEAN_CHROME = 80
+// gap. A guess over the truth leaves a gap by the ID, one under shrinks the drawing to its slot, so it leans over.
+const LEAN_CHROME = 96
 
 // The Board's ID column, sized for a six-digit ID (`TASK-123456`) so the bars hold one x as the board grows.
 const ID_CHARS = 11
