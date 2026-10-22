@@ -1067,20 +1067,21 @@ test('desktop Board tab: a text header and flat lane headers, lean row drawings 
   await ui.unmount()
 })
 
-test('desktop Board tab: the whole row is one plain button drawing only the ID, with no title, Details, Close or status pill', async ($, on) => {
+test('desktop Board tab: the row button is labelled with the ID alone, with no title, Details, Close or status pill', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
 
   const buttons = await everyButton(ui)
   expect(buttons.map(b => String(b.props.label))).not.toContain('Details')
   expect(buttons.map(b => String(b.props.label))).not.toContain('Close')
   const pick = (await ui.find({ key: 'task:TASK-7' })) as any
-  expect(pick?.props, 'the title stays in the accessible label').toMatchObject({ label: 'TASK-7 Busy one', plain: true })
-  const drawn = pick.children.filter((c: any) => typeof c === 'object')
-  expect(drawn, 'a title would push the bar off a narrow pane').toHaveLength(1)
-  expect(drawn[0].props).toMatchObject({ mono: true })
-  expect(drawn[0].children.join('').trimEnd()).toBe('TASK-7')
+  // A desktop draws its native button from the label, children or not: a title there widens the button and pushes the
+  // bar off a narrow pane.
+  expect(pick?.props).toMatchObject({ plain: true })
+  expect(pick.props.label.trimEnd(), 'the label is the ID alone').toBe('TASK-7')
+  expect(pick.children.join(''), 'no children to disagree with the label').toBe('')
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
-  expect(row.props.source, 'the title lives in the button, not the bar').not.toContain('Busy one')
+  expect(row.props.alt, 'the title stays readable to a screen reader').toContain('Busy one')
+  expect(row.props.source, 'the title is not drawn').not.toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
   expect(row.props.height).toBe(26)
   await ui.unmount()
@@ -1106,7 +1107,7 @@ test('desktop Board tab: the lane buttons are arrows that fold, and Ready starts
   expect(await glyph('ready')).toBe('›')
   expect(await glyph('in_progress')).toBe('⌄')
   await ui.press({ key: 'lane:ready' })
-  expect((await ui.find({ key: 'task:TASK-10' }))?.props.label).toBe('TASK-10 Ready one')
+  expect(String((await ui.find({ key: 'task:TASK-10' }))?.props.label).trimEnd()).toBe('TASK-10')
   expect(await glyph('ready')).toBe('⌄')
   await ui.unmount()
 })
@@ -1186,7 +1187,7 @@ const barAt = async (ui: any, id: string, columns: number) => {
 test('desktop Board tab: a row is the padded ID, a bar Client that takes the rest of the row, then one fixed pill and PR drawing', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key ?? b.props?.key ?? '').startsWith('row-')) as any[]
-  const ids = rows.map(r => r.children.find((c: any) => c?.type === 'Button').children.find((c: any) => typeof c === 'object').children.join(''))
+  const ids = rows.map(r => String(r.children.find((c: any) => c?.type === 'Button').props.label))
 
   expect(rows.length).toBeGreaterThan(1)
   const longest = Math.max(...ids.map(i => i.trimEnd().length))
