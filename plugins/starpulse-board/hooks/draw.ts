@@ -29,6 +29,9 @@ export const SP = {
   agent: '#a78bfa',
   agentText: '#c4b5fd',
   ready: '#60a5fa',
+  // The row bar's track and its criterion ticks: the slate over the chat grey, solid since a Client's colours take no alpha.
+  barTrack: '#353839',
+  barTick: '#474c50',
   ink0: '#05070d',
 }
 // Every icon the terminal draws: its Nerd Font v3 codepoint, then the plain Unicode character for a terminal without
@@ -738,18 +741,62 @@ export const leanRowSvg = (t: HeldTask, W: number) => {
     : p.k === null
       ? `<text x="${barW}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
       : `<g transform="translate(0,${mid - 6})">${dotMeter(p.n, p.k, color, barW, 12)}</g>`
+
+  return svg(W, H, bar + prMark(t, prX, mid), isLive ? TWINKLE : '')
+}
+
+// A lean row's PR: its checks dot and number at x, or nothing while none is open.
+const prMark = (t: HeldTask, x: number, mid: number) => {
   const checks = t.pull ? CHECKS[t.pull.checks] : null
 
-  return svg(
-    W,
-    H,
-    bar +
-      (checks
-        ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${prX + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
-          `<text x="${prX + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
-        : ''),
-    isLive ? TWINKLE : '',
-  )
+  return checks
+    ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${x + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
+        `<text x="${x + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
+    : ''
+}
+
+/**
+ * What a desktop row's bar Client draws from: the criteria done and in all, the lane's colour, the track's, and whether
+ * the lane is live, so its dots twinkle. A seed from the ID keeps each row's dots its own and still across redraws.
+ */
+export const leanBar = (t: HeldTask) => {
+  const p = progress(t)
+
+  return {
+    k: p?.k ?? null,
+    n: p?.n ?? 0,
+    color: laneOf(t)[1],
+    track: SP.barTrack,
+    tick: SP.barTick,
+    isLive: t.lane === 'in_progress',
+    seed: [...t.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 997, 7),
+  }
+}
+
+// The tail's pill slot: the widest pill, or a count of criteria with no checked data, so the PR holds one x.
+const PILL_SLOT = Math.ceil(Math.max(14 + '00/00'.length * 6.2, width('00 criteria', 11))) + 8
+
+// Every tail's width: the pill slot, then the PR slot.
+export const LEAN_TAIL = PILL_SLOT + LEAN_PR
+
+/**
+ * The fixed drawing after a desktop row's bar Client: the k/n pill coloured by lane (a count when no criterion's state is
+ * served), then the PR with its checks, both at one x on every row.
+ */
+export const leanTailSvg = (t: HeldTask) => {
+  const mid = LEAN_HEIGHT / 2
+  const [, color] = laneOf(t)
+  const p = progress(t)
+  const label = p ? ratio(p) : ''
+  const pillW = Math.round(14 + label.length * 6.2)
+  const pill = !p
+    ? ''
+    : p.k === null
+      ? `<text x="0" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(label)}</text>`
+      : `<rect y="${mid - 6}" width="${pillW}" height="12" rx="6" fill="${p.k ? color : SP.track}"/>` +
+        `<text x="${pillW / 2}" y="${mid + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${p.k ? SP.ink0 : SP.slate}">${label}</text>`
+
+  return svg(LEAN_TAIL, LEAN_HEIGHT, pill + prMark(t, PILL_SLOT, mid))
 }
 
 // The PR line of a card: its checks dot, number and phrase, or that none is open yet.

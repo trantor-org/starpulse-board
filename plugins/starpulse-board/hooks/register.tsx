@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, idChars, leanRowSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_TAIL, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, idChars, leanBar, leanRowSvg, leanTailSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -457,7 +457,10 @@ export const register: Register = (on, options) => {
           const shown = await read($, expanded)
           const picked = await read($, pickedTask)
           const mine = await read($, tasks)
-          const { Box, Button, Text, Svg } = $.ui.resolve(e) as Remote
+          const ui = $.ui.resolve(e) as Remote
+          const { Box, Button, Text, Svg } = ui
+          // VS Code and mobile have no Client; their rows keep the one capped drawing.
+          const Client = 'Client' in ui ? ui.Client : undefined
           if (e.surface !== 'terminal') {
             // The desktop's pane takes the page's own background; a picked task's detail replaces the lanes until "‹ Board".
             const width = pxWidth(e.props.bodyColumns - 1, 240, 720)
@@ -544,7 +547,7 @@ export const register: Register = (on, options) => {
                           hover={{ borderColor: `${SP.edge}55` }}
                         >
                           {rows.map(t => (
-                            // The row draws only the ID, padded with no-break spaces to one mono column so the bar right after it
+                            // The row draws only the ID, padded with no-break spaces to the longest ID's mono column so every bar
                             // starts at one x; a title sized from an estimated text width pushed the bar off a narrow pane.
                             <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
                               <Button key={`task:${t.id}`} label={`${t.id} ${t.title}`} plain onPress={() => update($, pickedTask, () => t.id)}>
@@ -552,11 +555,16 @@ export const register: Register = (on, options) => {
                                   {t.id.padEnd(idW, '\u00a0')}
                                 </Text>
                               </Button>
-                              {/* The drawing hangs from the row's right edge, its bar reaching left toward the ID; no width, so the
-                                  surface caps it at this slot and a pane narrower than leanW guessed shrinks it rather than overflowing. */}
-                              <Box flexGrow={1} flexDirection="row" justifyContent="flex-end">
-                                <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} height={LEAN_HEIGHT} />
-                              </Box>
+                              {/* Where a surface runs a Client, the bar is one that flexes into all the ID leaves and draws to
+                                  its own width, then a fixed pill and PR; elsewhere one drawing hangs from the right edge, its
+                                  width a guess the surface caps at the slot. */}
+                              {Client && <Client key={`bar:${t.id}`} module="./bar.tsx" props={leanBar(t)} flexGrow={1} />}
+                              {Client && <Svg source={leanTailSvg(t)} alt={alt(t)} width={LEAN_TAIL} height={LEAN_HEIGHT} />}
+                              {!Client && (
+                                <Box flexGrow={1} flexDirection="row" justifyContent="flex-end">
+                                  <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} height={LEAN_HEIGHT} />
+                                </Box>
+                              )}
                             </Box>
                           ))}
                           {rest > 0 && (
