@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register, RenderChildren } from 'claude-code'
 import type { BoardTask, HeldTask, Stats } from '../types'
-import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, LEAN_WIDTH, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
+import { BAND_HEIGHT, CHECKS, LANES as LANE_STYLES, LEAN_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, currentSvg, glyphs, leanRowSvg, leanWidth, laneIcon, laneOf, miniSvg, paneSvg, progress, ratio, statLines, subline, termBar } from './draw'
 import type { Glyphs } from './draw'
 import { LANES, events, follow, heldOf, newRun, openLanes, post, readBoard, stop, streamOf } from './starpulse'
 import type { Board, Run } from './starpulse'
@@ -500,6 +500,7 @@ export const register: Register = (on, options) => {
             const current = mine?.[0] ?? null
             const lanesShown = found.map(l => ({ ...l, tasks: l.tasks.filter(t => t.id !== current?.id) })).filter(l => l.tasks.length)
             const card = current ? currentSvg(current, width) : null
+            const leanW = leanWidth(width, lanesShown.flatMap(l => l.tasks.map(t => t.id)))
 
             return (
               <Box key="board" flexDirection="column" gap={1}>
@@ -550,7 +551,7 @@ export const register: Register = (on, options) => {
                                 </Text>
                               </Button>
                               <Box flexGrow={1} />
-                              <Svg source={leanRowSvg(t)} alt={alt(t)} width={LEAN_WIDTH} height={LEAN_HEIGHT} />
+                              <Svg source={leanRowSvg(t, leanW)} alt={alt(t)} width={leanW} height={LEAN_HEIGHT} />
                             </Box>
                           ))}
                           {rest > 0 && (

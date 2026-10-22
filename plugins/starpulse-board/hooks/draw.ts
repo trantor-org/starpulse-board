@@ -695,32 +695,43 @@ const dotMeter = (n: number, k: number, color: string, w: number, h: number, id 
 
 export const LEAN_HEIGHT = 26
 
-// The lean row's right columns, fixed so every row's bar starts at one x: the bar with its k/n pill, and a PR slot kept
-// even when the task has no PR.
-const LEAN_BAR = 90
+// The lean row's right columns: the bar with its k/n pill, and a PR slot kept even when the task has no PR, so every
+// row's bar starts at one x.
 const LEAN_PR = Math.ceil(width('#0000', 11, true)) + 12
-
-// Every lean drawing's width: the bar, a gap and the PR slot.
-export const LEAN_WIDTH = LEAN_BAR + 10 + LEAN_PR
+const LEAN_GAP = 10
+const [BAR_MIN, BAR_MAX] = [90, 320]
+// What a row spends beside its ID and drawing: the lane card's border and padding, the native button's padding and the
+// gaps, with room to spare, since a native button's chrome is wider than the drawing can measure.
+const LEAN_CHROME = 120
 
 /**
- * The Board's lean drawing, right of the row's text at one width so every bar starts at one x: the dot-field AC bar with
+ * Every lean drawing's width in a pane W wide: the bar takes the middle the longest ID leaves, so one width serves every
+ * row and every bar starts at one x.
+ */
+export const leanWidth = (W: number, ids: string[]) => {
+  const id = Math.max(0, ...ids.map(i => width(i, 13, true)))
+  const bar = Math.max(BAR_MIN, Math.min(BAR_MAX, Math.floor(W - id - LEAN_CHROME - LEAN_GAP - LEAN_PR)))
+
+  return bar + LEAN_GAP + LEAN_PR
+}
+
+/**
+ * The Board's lean drawing, right of the row's ID at one width so every bar starts at one x: the dot-field AC bar with
  * its k/n pill, and the PR with its checks. The lane is the box around it, so no dot or pill.
  */
-export const leanRowSvg = (t: HeldTask) => {
-  const W = LEAN_WIDTH
+export const leanRowSvg = (t: HeldTask, W: number) => {
   const H = LEAN_HEIGHT
   const mid = H / 2
   const [, color] = laneOf(t)
   const p = progress(t)
   const prX = W - LEAN_PR
-  const barX = prX - 10 - LEAN_BAR
+  const barW = prX - LEAN_GAP
   const isLive = t.lane === 'in_progress'
   const bar = !p
     ? ''
     : p.k === null
-      ? `<text x="${barX + LEAN_BAR}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${dotMeter(p.n, p.k, color, LEAN_BAR, 12)}</g>`
+      ? `<text x="${barW}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
+      : `<g transform="translate(0,${mid - 6})">${dotMeter(p.n, p.k, color, barW, 12)}</g>`
   const checks = t.pull ? CHECKS[t.pull.checks] : null
 
   return svg(

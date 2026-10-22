@@ -1197,6 +1197,22 @@ test("desktop Board tab: every row's bar starts at one x, PR or not, whatever th
   await ui.unmount()
 })
 
+test('desktop Board tab: the bar takes the middle of the row, wider on a wider pane, never past its edge', async ($, on) => {
+  const widths = async (ui: any) =>
+    ((await ui.findAll({ type: 'Svg' })) as any[]).filter(s => /^TASK-\d+:/.test(s.props.alt)).map(s => s.props.width as number)
+  const wide = await openKanban($, on, { frame: FULL }, 'desktop')
+  const w = await widths(wide)
+  await wide.unmount()
+  const narrow = await $.ui.mount({ plugin: 'starpulse-board', surface: 'desktop', component: 'Pane', props: { ...PANE_PROPS, placement: 'dock', bodyColumns: 40 }, requestId: 'starpulse-kanban' })
+  const n = await widths(narrow)
+
+  expect(n.length).toBeGreaterThan(0)
+  expect(new Set(n), 'a narrow pane keeps the shortest bar').toEqual(new Set([Math.min(...n)]))
+  expect(Math.max(...n), 'a narrow pane keeps room for the ID and the button').toBeLessThanOrEqual(Math.floor(39 * 7.5) - 140)
+  expect(Math.min(...w), 'a wide pane lends the bar the space the title gave up').toBeGreaterThan(Math.max(...n) + 200)
+  await narrow.unmount()
+})
+
 test('desktop Board tab: a busy lane shows its first six rows until Show N more, and the live bar twinkles', async ($, on) => {
   const many = Array.from({ length: 8 }, (_, i) => task({ id: `TASK-2${i}`, title: `Busy ${i}`, assignee: `session-${i}` }))
   const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', many]]) }, 'desktop')
