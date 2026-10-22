@@ -1039,7 +1039,7 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   await ui.unmount()
 })
 
-test('desktop Board tab: a text header and flat lane headers, lean row drawings on one stack card per lane, no rules, hints or icon font', async ($, on) => {
+test('desktop Board tab: a text header and flat lane headers, lean row drawings on one bordered card per lane, no rules, hints or icon font', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
   const seen = (await everyText(ui)).join('|')
@@ -1050,7 +1050,7 @@ test('desktop Board tab: a text header and flat lane headers, lean row drawings 
   expect(seen).toContain('BOARD')
   expect(seen).toContain('3 tasks · live')
   expect(seen).toContain('IN PROGRESS')
-  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor)).toBe('#30302e')
+  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor), 'the lane card shows the chat grey').toBeUndefined()
   expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.borderStyle), 'a row has no box of its own').toBeUndefined()
   const buttons = await everyButton(ui)
   expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready', 'task:TASK-7']))
@@ -1070,7 +1070,7 @@ test('desktop Board tab: a row is lean: its ID is the button, with no Details, C
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
   expect(row.props.source).toContain('Busy one')
   expect(row.props.source, 'no lane pill').not.toContain('In Progress')
-  expect(row.props.height).toBe(26)
+  expect(row.props.height).toBe(24)
   await ui.unmount()
 })
 
@@ -1161,7 +1161,29 @@ test('desktop Board tab: a bar ends in a round cap, not a square tail', async ($
   const ui = await openKanban($, on, {}, 'desktop')
 
   const row = (await ui.findAll({ type: 'Svg' })).find((s: any) => s.props.alt.startsWith('TASK-7:')) as any
-  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="12" rx="6"\/>/)
+  expect(row.props.source).toMatch(/<clipPath id="c"><rect width="\d+" height="6" rx="3"\/>/)
+  await ui.unmount()
+})
+
+test("desktop Board tab: every row's bar starts at one x, PR or not, whatever the ID", async ($, on) => {
+  const frame = board([
+    [
+      'in_progress',
+      'In Progress',
+      [
+        task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2' }),
+        task({ id: 'TASK-1234', title: 'A much longer title that has to be fitted before the bar', assignee: 'session-3', prs: [] }),
+      ],
+    ],
+    ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed one', criteria: CRITERIA.map(c => ({ ...c, checked: true })) })]],
+  ])
+  const ui = await openKanban($, on, { frame }, 'desktop')
+
+  const rows = (await ui.findAll({ type: 'Svg' })).filter((s: any) => /^TASK-\d+:/.test(s.props.alt)) as any[]
+  const starts = rows.map(r => /<g transform="translate\(([\d.]+),[\d.]+\)"><clipPath/.exec(r.props.source)?.[1]).filter(Boolean)
+  expect(starts.length).toBeGreaterThan(1)
+  expect(new Set(starts).size).toBe(1)
+  expect(new Set(rows.map(r => r.props.width)).size, 'one drawing width').toBe(1)
   await ui.unmount()
 })
 

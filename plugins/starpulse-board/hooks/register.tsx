@@ -120,12 +120,13 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const pxWidth = (columns: number, lo: number, hi: number) => (Number.isFinite(columns) && columns > 0 ? clamp(Math.floor(columns * CELL_PX), lo, hi) : lo)
 
 // Pixels a monospace cell takes on the remote surfaces; the room the band's PR link and fold button take
-// over its head drawing; and the room a Board row's lane dot and ID button take beside its lean row.
+// over its head drawing; and the room a Board row's ID button takes beside its lean row, which a spacer pads so every row's
+// drawing, and so its bar, starts at one x.
 const CELL_PX = 7.5
 const TOOLS_PX = 96
 // Folded, the tools also carry the cost and turns.
 const MINI_TOOLS_PX = 230
-const ID_PX = 124
+const ID_PX = 112
 
 type Terminal = ElementTable<'terminal'>
 // Every surface but the terminal draws the Svg; the desktop's table stands for them (Box, Text and Button are the same).
@@ -504,7 +505,7 @@ export const register: Register = (on, options) => {
                   <Box flexGrow={1} />
                   <Text color={SP.muted}>{`${open} ${open === 1 ? 'task' : 'tasks'} · live`}</Text>
                 </Box>
-                {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} />}
+                {current && card && <Svg source={card.source} alt={`Current task ${current.id}: ${current.title}`} width={width} height={card.height} isInteractive />}
                 {lanesShown.map(l => {
                   const isFolded = shut.includes(l.state)
                   const [laneName, color] = LANE_STYLES[l.state] ?? [l.name, SP.slate]
@@ -528,14 +529,13 @@ export const register: Register = (on, options) => {
                           flexDirection="column"
                           paddingX={1}
                           borderStyle="round"
-                          borderColor={`${color}26`}
-                          backgroundColor={SP.stack}
-                          hover={{ borderColor: `${color}66` }}
+                          borderColor={`${color}1f`}
+                          hover={{ borderColor: `${color}55` }}
                         >
                           {l.tasks.map(t => (
                             <Box key={`row-${t.id}`} flexDirection="row" alignItems="center" gap={1}>
-                              <Text color={color}>●</Text>
                               <Button key={`task:${t.id}`} label={t.id} plain onPress={() => update($, pickedTask, () => t.id)} />
+                              <Box flexGrow={1} />
                               <Svg source={leanRowSvg(t, width - ID_PX)} alt={alt(t)} width={width - ID_PX} height={LEAN_HEIGHT} />
                             </Box>
                           ))}

@@ -208,20 +208,11 @@ const wrap = (text: string, size: number, room: number, weight = 400, most = 2) 
   return lines.length > most ? [...lines.slice(0, most - 1), fit(lines.slice(most - 1).join(' '), size, room, false, weight)] : lines
 }
 
-const noise = (a: number, b: number) => {
-  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
-
-  return x - Math.floor(x)
-}
-
 // Motion runs only under the system's no-preference setting; a lane that is not live, and a pass or fail check, never pulse.
 // `extra` is rules only one drawing uses, inside the same query.
-const style = (isLive: boolean, extra = '') =>
+const style = (extra = '') =>
   '<style>@media (prefers-reduced-motion: no-preference){' +
-  (isLive
-    ? '.t0,.t1,.t2,.t3{animation:tw 2.4s ease-in-out infinite}.t1{animation-duration:2.9s;animation-delay:-.7s}.t2{animation-duration:2s;animation-delay:-1.3s}.t3{animation-duration:3.3s;animation-delay:-.4s}@keyframes tw{0%,100%{opacity:1}50%{opacity:.35}}'
-    : '') +
-  `.live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}${extra}}</style>`
+  `.live{animation:p 2s ease-in-out infinite}@keyframes p{50%{opacity:.45}}${extra}}</style>`
 
 // A drawing is an image the page's theme cannot reach, and the system scheme need not be the app's, so every card carries its
 // own dark surface: its inks read the same on a light or a dark page.
@@ -235,30 +226,27 @@ const pill = (x: number, y: number, w: number, color: string, label: string, siz
 
 const pillWidth = (label: string) => Math.ceil(width(label, 11, false, 500)) + 26
 
-const CELL = 3
+type Meter = { id?: string; isLive?: boolean; isLabeled?: boolean }
 
-// An AC bar at the origin: a round track, the dot field of the k criteria met clipped to a round-ended fill, ticks past the
-// fill for the rest, and the k/n pill riding the edge. `id` names the clip, unique within one drawing.
-const meter = (n: number, k: number, color: string, w: number, h: number, id = 'c') => {
+// An AC bar at the origin: a round track, a solid round-ended fill of the k criteria met, ticks past the fill for the rest,
+// and the k/n pill riding the edge unless the caller sets its own. A live bar carries one soft highlight that sweeps the
+// fill, gated like every other motion. `id` names the clip and the sweep, unique within one drawing.
+const meter = (n: number, k: number, color: string, w: number, h: number, { id = 'c', isLive = false, isLabeled = true }: Meter = {}) => {
   const fillW = Math.round((w * k) / n)
-  const cols = Math.floor(fillW / CELL)
-  const rows = Math.floor(h / CELL)
-  const dots: string[] = []
   const ticks: string[] = []
-  for (let c = 0; c < cols; c++) {
-    const density = 0.4 + 0.55 * Math.pow(c / Math.max(1, cols), 1.2)
-    for (let r = 0; r < rows; r++) {
-      if (noise(c, r) < density) {
-        dots.push(`<rect class="t${Math.floor(noise(r, c) * 4)}" x="${c * CELL + 1}" y="${r * CELL + 1}" width="2" height="2"/>`)
-      }
-    }
-  }
   for (let i = 1; i < n; i++) {
     const x = Math.round((w * i) / n)
     if (x > fillW + 3) {
-      ticks.push(`<rect x="${x}" y="${h / 2 - 3}" width="1.5" height="6" rx=".75"/>`)
+      ticks.push(`<rect x="${x}" y="${h / 2 - Math.min(3, h / 2 - 1)}" width="1.5" height="${Math.min(6, h - 2)}" rx=".75"/>`)
     }
   }
+  const glint = Math.max(24, Math.round(fillW * 0.35))
+  const sweep =
+    isLive && fillW > 0
+      ? `<linearGradient id="${id}-g"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+        `<style>@media (prefers-reduced-motion: no-preference){.${id}-s{animation:${id}-s 2.4s cubic-bezier(.45,0,.25,1) infinite}@keyframes ${id}-s{from{transform:translateX(0)}to{transform:translateX(${fillW + glint}px)}}}</style>` +
+        `<rect class="${id}-s" x="${-glint}" width="${glint}" height="${h}" fill="url(#${id}-g)"/>`
+      : ''
   const label = `${k}/${n}`
   const labelW = Math.round(14 + label.length * 6.2)
   const labelX = Math.max(0, Math.min(w - labelW, fillW - labelW))
@@ -266,9 +254,12 @@ const meter = (n: number, k: number, color: string, w: number, h: number, id = '
   return (
     `<clipPath id="${id}"><rect width="${Math.max(fillW, h)}" height="${h}" rx="${h / 2}"/></clipPath>` +
     `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${SP.slate}" fill-opacity=".12"/>` +
-    `<g clip-path="url(#${id})" fill="${color}">${dots.join('')}</g><g fill="${SP.track}">${ticks.join('')}</g>` +
-    `<rect x="${labelX}" width="${labelW}" height="${h}" rx="${h / 2}" fill="${k ? color : SP.track}"/>` +
-    `<text x="${labelX + labelW / 2}" y="${h / 2 + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink0 : SP.slate}">${label}</text>`
+    `<g fill="${SP.track}">${ticks.join('')}</g>` +
+    (fillW > 0 ? `<g clip-path="url(#${id})"><rect width="${fillW}" height="${h}" fill="${color}" fill-opacity=".9"/>${sweep}</g>` : '') +
+    (isLabeled
+      ? `<rect x="${labelX}" width="${labelW}" height="${h}" rx="${h / 2}" fill="${k ? color : SP.track}"/>` +
+        `<text x="${labelX + labelW / 2}" y="${h / 2 + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink0 : SP.slate}">${label}</text>`
+      : '')
   )
 }
 
@@ -313,7 +304,7 @@ export const rowSvg = (t: HeldTask, W: number, isPicked = false) => {
   const pulse = (on: boolean) => (on ? ' class="live"' : '')
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(isLive)}` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style()}` +
     `<defs><clipPath id="tc"><rect x="${left}" width="${titleMax}" height="${H}"/></clipPath><filter id="g" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="2"/></filter></defs>` +
     card(W, H, isPicked ? color : SP.slate, isPicked ? 0.7 : 0.13) +
     `<circle cx="${PAD + 4}" cy="${mid}" r="4" fill="${color}" filter="url(#g)" opacity=".6"/>` +
@@ -332,8 +323,8 @@ export const rowSvg = (t: HeldTask, W: number, isPicked = false) => {
 
 const GLOW = '<filter id="g" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="2"/></filter>'
 
-const svg = (W: number, H: number, isLive: boolean, body: string, extra = '') =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(isLive, extra)}<defs>${GLOW}</defs>${body}</svg>`
+const svg = (W: number, H: number, body: string, extra = '') =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(extra)}<defs>${GLOW}</defs>${body}</svg>`
 
 const label = (x: number, y: number, text: string) =>
   `<text x="${x}" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="600" letter-spacing="1.3" fill="${SP.slate}">${xml(text)}</text>`
@@ -593,7 +584,6 @@ export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
     return svg(
       W,
       H,
-      false,
       `<text x="10" y="${mid + 4.5}" font-family="${FONT}" font-size="13" fill="${SP.slate}">${xml(fit('No task held — the band fills once this session claims one.', 13, W - 20 - tools))}</text>`,
     )
   }
@@ -608,12 +598,11 @@ export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
     ? ''
     : p.k === null
       ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
+      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12, { isLive })}</g>`
 
   return svg(
     W,
     H,
-    isLive,
     `<circle cx="14" cy="${mid}" r="4" fill="${color}" filter="url(#g)" opacity=".6"/>` +
       `<circle${isLive ? ' class="live"' : ''} cx="14" cy="${mid}" r="3.5" fill="${color}"/>` +
       `<text x="24" y="${mid + 4}" font-family="${MONO}" font-size="12" fill="${SP.slate}">${xml(t.id)}</text>` +
@@ -641,7 +630,7 @@ export const bandBodySvg = (t: HeldTask | null, W: number) => {
     y += row.h
   }
 
-  return { height: y, source: svg(W, y, false, parts.join(''), STREAM) }
+  return { height: y, source: svg(W, y, parts.join(''), STREAM) }
 }
 
 /** The band folded to one line: tests chip and the task's chip, its native tools and stats over the right `tools` pixels. */
@@ -652,14 +641,20 @@ export const miniSvg = (t: HeldTask | null, W: number, tools = 0) => {
     t ? chip(`${t.id} · ${laneOf(t)[0]}`, laneOf(t)[1], true) : chip('no task held', SP.slate),
   ]
 
-  return svg(W, BAND_HEIGHT, false, `<g transform="translate(10,8)">${line(pieces, W - 20 - tools, 10)}</g>`)
+  return svg(W, BAND_HEIGHT, `<g transform="translate(10,8)">${line(pieces, W - 20 - tools, 10)}</g>`)
 }
 
-export const LEAN_HEIGHT = 26
+export const LEAN_HEIGHT = 24
+
+// The lean row's right columns, fixed so every row's bar starts at one x: the bar, its k/n, and a PR slot kept even when
+// the task has no PR.
+const LEAN_BAR = 72
+const LEAN_K = 34
+const LEAN_PR = Math.ceil(width('#0000', 11, true)) + 12
 
 /**
- * The Board's lean row, drawn right of its native lane dot and ID button: the title (or why it waits), a round-ended AC
- * bar, and the PR with its checks. The lane is the box around it, so no pill.
+ * The Board's lean row, drawn right of its native ID button: the title (or why it waits), a slim AC bar with its k/n, and
+ * the PR with its checks. The lane is the box around it, so no dot or pill.
  */
 export const leanRowSvg = (t: HeldTask, W: number) => {
   const H = LEAN_HEIGHT
@@ -667,27 +662,25 @@ export const leanRowSvg = (t: HeldTask, W: number) => {
   const [, color] = laneOf(t)
   const p = progress(t)
   const sub = subline(t)
-  const pr = t.pull ? `#${t.pull.number}` : ''
-  const prW = t.pull ? Math.ceil(width(pr, 11, true)) + 12 : 0
-  const barW = p ? (p.k === null ? Math.ceil(width(ratio(p), 11)) : 90) : 0
-  const barX = W - prW - (prW ? 10 : 0) - barW
+  const prX = W - LEAN_PR
+  const kX = prX - 10
+  const barX = kX - LEAN_K - LEAN_BAR
   const bar = !p
     ? ''
     : p.k === null
-      ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
+      ? `<text x="${kX}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
+      : `<g transform="translate(${barX},${mid - 3})">${meter(p.n, p.k, color, LEAN_BAR, 6, { isLive: t.lane === 'in_progress', isLabeled: false })}</g>` +
+        `<text x="${kX}" y="${mid + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums" fill="${p.k ? SP.slate : SP.dim}">${ratio(p)}</text>`
   const checks = t.pull ? CHECKS[t.pull.checks] : null
-  const prX = W - prW
 
   return svg(
     W,
     H,
-    t.lane === 'in_progress',
-    `<text x="0" y="${mid + 4.5}" font-family="${FONT}" font-size="13" fill="${sub.color}">${xml(fit(sub.text, 13, barX - (barW ? 12 : 0)))}</text>` +
+    `<text x="0" y="${mid + 4.5}" font-family="${FONT}" font-size="12.5" fill="${sub.color}">${xml(fit(sub.text, 12.5, barX - 14))}</text>` +
       bar +
       (checks
         ? `<circle${t.pull?.checks === 'pending' ? ' class="live"' : ''} cx="${prX + 4}" cy="${mid}" r="3.5" fill="${prColor(t.pull!.checks)}"><title>${checks.phrase}</title></circle>` +
-          `<text x="${prX + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">${pr}</text>`
+          `<text x="${prX + 12}" y="${mid + 4}" font-family="${MONO}" font-size="11" fill="${SP.muted}">#${t.pull!.number}</text>`
         : ''),
   )
 }
@@ -742,7 +735,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
     parts.push(label(PAD, y + 9, 'ACCEPTANCE CRITERIA'))
     y += 18
     if (p.k !== null) {
-      parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, Math.min(360, room), 14)}</g>`)
+      parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, Math.min(360, room), 12, { isLive: t.lane === 'in_progress' })}</g>`)
       y += 22
     }
     for (const c of t.criteria ?? []) {
@@ -765,7 +758,7 @@ export const paneSvg = (t: HeldTask, W: number) => {
   y += 12 + PAD
   const H = Math.ceil(y)
 
-  return { height: H, source: svg(W, H, t.lane === 'in_progress', card(W, H, color, 0.16, SP.stack, 14) + parts.join('')) }
+  return { height: H, source: svg(W, H, card(W, H, color, 0.12, SP.navy, 14) + parts.join('')) }
 }
 
 /** The card of this session's task atop the Board: its lane, ID and title, criteria as checkboxes, and its pull request. */
@@ -790,7 +783,7 @@ export const currentSvg = (t: HeldTask, W: number) => {
   )
   y += 24
   if (p && p.k !== null) {
-    parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, room, 12, 'cc')}</g>`)
+    parts.push(`<g transform="translate(${PAD},${y})">${meter(p.n, p.k, color, room, 12, { id: 'cc', isLive: t.lane === 'in_progress' })}</g>`)
     y += 20
   }
   for (const c of t.criteria ?? []) {
@@ -806,10 +799,10 @@ export const currentSvg = (t: HeldTask, W: number) => {
   const H = Math.ceil(y)
 
   // No glow: the card's own dot pulses in its lane colour, as the mock's `#cur .dot.live` does.
-  const body = card(W, H, SP.ready, 0.1, SP.surface, 14) + parts.join('')
+  const body = card(W, H, SP.ready, 0.14, SP.navy, 14) + parts.join('')
 
   return {
     height: H,
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style(false, '.pulse{animation:p 1.6s ease-in-out infinite}')}${body}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style('.pulse{animation:p 2s ease-in-out infinite}')}${body}</svg>`,
   }
 }
