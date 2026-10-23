@@ -50,9 +50,13 @@ jobs:
           npm install -g @anthropic-ai/claude-code@2.1.309
           mkdir -p .tmp/demo
           # The demo test prints the page between PAGE_START and PAGE_END: a hooks module can write no file.
-          claude plugin test plugins/starpulse-board | tee .tmp/test.log
+          # The test workflow owns pass and fail; this step needs only the page the demo test printed.
+          status=0
+          claude plugin test plugins/starpulse-board > .tmp/test.log 2>&1 || status=$?
+          echo "claude plugin test exited $status"
+          tail -n 5 .tmp/test.log
           awk '/^PAGE_START$/{f=1;next} /^PAGE_END$/{f=0} f' .tmp/test.log > .tmp/demo/index.html
-          test -s .tmp/demo/index.html
+          test -s .tmp/demo/index.html || { echo 'the test run printed no page' >&2; exit 1; }
           # The page is public: refuse one that names a private address.
           if grep -Eq '\b(10|127)\.[0-9]+\.[0-9]+\.[0-9]+\b|\b192\.168\.[0-9]+\.[0-9]+\b|\b172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+\b' .tmp/demo/index.html; then
             echo 'the demo names a private address' >&2
