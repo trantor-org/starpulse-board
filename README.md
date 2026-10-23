@@ -15,11 +15,11 @@ documents the band and the Board pane.
 
 At session start the Board tab opens in the dock without taking the keys. On the terminal it draws cells, with the
 `glyphs` option (`nerd`, default, or `plain`) choosing the icons. On Desktop it draws a text header, a THIS SESSION lane
-holding the task this session holds, then the board's lanes, each task one line (its ID, a flat bar of criteria done,
+holding the task this session holds, then the board's lanes, each task one line (its ID, a bar with one segment per criterion, the met ones filled,
 k/n, and the pull request with its checks dot) that opens the task's card from a press anywhere on it; lane fold
 arrows, Start session and Move to ... stay native buttons, with no icon font or key hints.
 
-Above the prompt an always-on band draws the held task: its lane, ID, title and bar, the delivery phases and substates
+Above the prompt an always-on band draws the held task: its lane, ID, title and a bar with one segment per criterion, the delivery phases and substates
 the board serves, the pull request's checks, threads and freshness, and the session's cost, turns and tokens. On Desktop
 its head row carries two native controls over the drawing: the pull request number as a link to the PR and a fold arrow
 that collapses the band to its head row. The band draws only the phases the task has reached; the running step's orb

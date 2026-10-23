@@ -231,33 +231,20 @@ const pill = (x: number, y: number, w: number, color: string, label: string, siz
 
 const pillWidth = (label: string) => Math.ceil(width(label, 11, false, 500)) + 26
 
-type Meter = { id?: string; isLabeled?: boolean }
-
-// An AC bar at the origin: a round track, a solid round-ended fill of the k criteria met, ticks past the fill for the rest,
-// and the k/n pill riding the edge unless the caller sets its own; it never moves. `id` names the clip, unique within one
-// drawing.
-const meter = (n: number, k: number, color: string, w: number, h: number, { id = 'c', isLabeled = true }: Meter = {}) => {
-  const fillW = Math.round((w * k) / n)
-  const ticks: string[] = []
-  for (let i = 1; i < n; i++) {
-    const x = Math.round((w * i) / n)
-    if (x > fillW + 3) {
-      ticks.push(`<rect x="${x}" y="${h / 2 - Math.min(3, h / 2 - 1)}" width="1.5" height="${Math.min(6, h - 2)}" rx=".75"/>`)
-    }
-  }
+// An AC bar at the origin: one rounded segment per criterion, the k met filled in the lane colour, the rest a dark track,
+// and the k/n ratio beside them; it never moves.
+const meter = (n: number, k: number, color: string, w: number, h: number) => {
   const label = `${k}/${n}`
-  const labelW = Math.round(14 + label.length * 6.2)
-  const labelX = Math.max(0, Math.min(w - labelW, fillW - labelW))
-
+  const labelW = Math.ceil(width(label, 11, false, 600))
+  const segsW = w - labelW - 8
+  const gap = segsW / n >= 8 ? 3 : 1
+  const segW = (segsW - gap * (n - 1)) / n
+  const segs = Array.from({ length: n }, (_, i) =>
+    `<rect class="seg" x="${(i * (segW + gap)).toFixed(1)}" width="${segW.toFixed(1)}" height="${h}" rx="${Math.min(3, h / 2)}" fill="${i < k ? color : SP.barTrack}"/>`,
+  )
   return (
-    `<clipPath id="${id}"><rect width="${Math.max(fillW, h)}" height="${h}" rx="${h / 2}"/></clipPath>` +
-    `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${SP.slate}" fill-opacity=".12"/>` +
-    `<g fill="${SP.track}">${ticks.join('')}</g>` +
-    (fillW > 0 ? `<g clip-path="url(#${id})"><rect width="${fillW}" height="${h}" fill="${color}" fill-opacity=".9"/></g>` : '') +
-    (isLabeled
-      ? `<rect x="${labelX}" width="${labelW}" height="${h}" rx="${h / 2}" fill="${k ? color : SP.track}"/>` +
-        `<text x="${labelX + labelW / 2}" y="${h / 2 + 3.6}" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink0 : SP.slate}">${label}</text>`
-      : '')
+    segs.join('') +
+    `<text x="${w}" y="${h / 2 + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-weight="600" font-variant-numeric="tabular-nums" fill="${k ? SP.ink : SP.slate}">${label}</text>`
   )
 }
 
@@ -586,14 +573,14 @@ export const bandHeadSvg = (t: HeldTask | null, W: number, tools = 0) => {
   const p = progress(t)
   const isLive = t.lane === 'in_progress'
   const idW = Math.ceil(width(t.id, 12, true))
-  const barW = p ? (p.k === null ? Math.ceil(width(ratio(p), 11)) : 120) : 0
+  const barW = p ? (p.k === null ? Math.ceil(width(ratio(p), 11)) : 180) : 0
   const barX = W - tools - 10 - barW
   const left = 24 + idW + 10
   const bar = !p
     ? ''
     : p.k === null
       ? `<text x="${barX}" y="${mid + 4}" font-family="${FONT}" font-size="11" fill="${SP.muted}">${xml(ratio(p))}</text>`
-      : `<g transform="translate(${barX},${mid - 6})">${meter(p.n, p.k, color, barW, 12)}</g>`
+      : `<g transform="translate(${barX},${mid - 7})">${meter(p.n, p.k, color, barW, 14)}</g>`
 
   return svg(
     W,

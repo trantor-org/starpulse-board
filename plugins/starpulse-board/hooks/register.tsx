@@ -558,7 +558,7 @@ export const register: Register = (on, options) => {
                         >
                           {rows.map(t =>
                             Client ? (
-                              <Box key={`row-${t.id}`} flexDirection="row">
+                              <Box key={`row-${t.id}`} flexDirection="row" paddingY={1} hover={{ backgroundColor: `${SP.edge}1f` }}>
                                 <Client key={`task:${t.id}`} module="./row.tsx" props={leanRow(t, idW)} flexGrow={1} />
                               </Box>
                             ) : (
