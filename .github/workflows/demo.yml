@@ -1,0 +1,114 @@
+name: demo
+
+# Every pull request renders the desktop Board pane and band to one static page (plugins/starpulse-board/demo) and
+# publishes it to this repository's gh-pages branch, which GitHub Pages serves, under pr-<N>/. The pull request
+# description links it; closing the pull request unpublishes it, which is why that event starts a run too. A push to
+# main republishes main/, the demo of the current build the README links.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: Publish the demo
+    # A newer push supersedes a run still in flight for the same pull request.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    # On a pull request the demo is review context, never a gate. On main a failed publish turns the run red; the
+    # previous main/ demo keeps serving.
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The run's own token writes gh-pages and the description; the ruleset protects only the default branch.
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FOLDER: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
+      ACTION: ${{ github.event.action }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        if: env.ACTION != 'closed'
+        with:
+          node-version: 22
+
+      - name: Render the page
+        if: env.ACTION != 'closed'
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code@2.1.309
+          mkdir -p .tmp/demo
+          # The demo test prints the page between PAGE_START and PAGE_END: a hooks module can write no file.
+          # The test workflow owns pass and fail; this step needs only the page the demo test printed.
+          status=0
+          claude plugin test plugins/starpulse-board > .tmp/test.log 2>&1 || status=$?
+          echo "claude plugin test exited $status"
+          tail -n 5 .tmp/test.log
+          awk '/^PAGE_START$/{f=1;next} /^PAGE_END$/{f=0} f' .tmp/test.log > .tmp/demo/index.html
+          test -s .tmp/demo/index.html || { echo 'the test run printed no page' >&2; exit 1; }
+          # The page is public: refuse one that names a private address.
+          if grep -Eq '\b(10|127)\.[0-9]+\.[0-9]+\.[0-9]+\b|\b192\.168\.[0-9]+\.[0-9]+\b|\b172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+\b' .tmp/demo/index.html; then
+            echo 'the demo names a private address' >&2
+            exit 1
+          fi
+
+      - name: Publish to gh-pages
+        run: |
+          set -euo pipefail
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          site="${RUNNER_TEMP}/site"
+          for attempt in 1 2 3; do
+            rm -rf "$site"
+            if git ls-remote --exit-code --heads "$remote" gh-pages > /dev/null; then
+              git clone --quiet --depth 1 --branch gh-pages "$remote" "$site"
+            else
+              git init --quiet -b gh-pages "$site"
+              git -C "$site" remote add origin "$remote"
+            fi
+            rm -rf "${site:?}/${FOLDER}"
+            if [ "$ACTION" != closed ]; then
+              mkdir -p "${site}/${FOLDER}"
+              cp .tmp/demo/index.html "${site}/${FOLDER}/index.html"
+            fi
+            touch "${site}/.nojekyll"
+            git -C "$site" add -A
+            if git -C "$site" diff --cached --quiet; then exit 0; fi
+            git -C "$site" commit --quiet -m "demo: ${FOLDER}"
+            # Another run may have pushed first: start over from its branch.
+            if git -C "$site" push --quiet origin gh-pages; then exit 0; fi
+          done
+          echo 'gh-pages moved on three times in a row' >&2
+          exit 1
+
+      - name: Link the demo in the pull request description
+        if: github.event_name == 'pull_request' && env.ACTION != 'closed'
+        env:
+          OWNER: ${{ github.repository_owner }}
+          NAME: ${{ github.event.repository.name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+
+          repo, pr, folder = os.environ["GITHUB_REPOSITORY"], os.environ["PR"], os.environ["FOLDER"]
+          url = f"https://{os.environ['OWNER']}.github.io/{os.environ['NAME']}/{folder}/"
+          endpoint = f"repos/{repo}/pulls/{pr}"
+          body = subprocess.check_output(["gh", "api", endpoint, "--jq", '.body // ""'], text=True)
+          section = re.compile(r"\n*<!-- starpulse:ui-demo -->.*?<!-- /starpulse:ui-demo -->\n?", re.DOTALL)
+          note = f"Public demo of the desktop render: [{url}]({url}). Closing or merging the PR unpublishes it."
+          body = section.sub("", body).rstrip("\n") + "\n"
+          body += f"\n<!-- starpulse:ui-demo -->\n## Demo\n\n{note}\n<!-- /starpulse:ui-demo -->\n"
+          subprocess.run(["gh", "api", "-X", "PATCH", endpoint, "--input", "-", "--silent"], input=json.dumps({"body": body}), text=True, check=True)
+          PY
