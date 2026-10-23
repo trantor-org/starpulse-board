@@ -58,6 +58,13 @@ Claude Desktop. Known differences:
   under no-preference motion as Desktop does; the page adds none. The SVG is inlined, so its `<style>` rules apply to the
   whole page, which Desktop's image drawing does not do.
 - **Colour scheme.** The page is dark whatever the Desktop theme; the plugin's own colours are used as given.
+- **Desktop's own colours.** Desktop draws the pane body `#2a2a2a`; the page uses `#1a1a19` around a `#262624` pane. In
+  the status bars Desktop shows a filled segment `#ffd145` (page `#fbbf24`), an empty one `#3f4243` (page `#353839`) and
+  a review one `#b099ff` (page `#a78bfa`). Desktop also draws its own "Board" title bar with expand and close buttons
+  above the body, at every width.
+- **Width.** The demo draws 40 and 100 columns (320 and 800 px). A wide Desktop pane measured about 151 columns
+  (1211 px); a narrow one about 41 columns (328 px). Bars shrink with a narrow pane in both, and lane structure, counts,
+  PR dots and "Show N more" match.
 - **Data.** The tasks are invented. The band reports no delivery phase, and its cost, turns and tokens read zero.
 
 A prop the mapping does not know is listed at the foot of the page under "Not drawn by this renderer", and the demo test
