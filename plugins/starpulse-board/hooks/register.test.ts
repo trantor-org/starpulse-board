@@ -251,6 +251,18 @@ test('terminal row: no checked data draws a count without a bar, no criteria dra
 
 const svgs = async (ui: any) => ((await ui.findAll({ type: 'Svg' })) as any[]).map(x => x.props as { source: string; alt: string })
 
+test('desktop band: the AC bar is one segment per criterion, the done ones filled, taller than a hairline', async ($, on) => {
+  serve(on, BOARD)
+
+  await $.command.run(RUN)
+  const [head] = await svgs(await band($, 'desktop'))
+  const segs = [...(head?.source ?? '').matchAll(/<rect class="seg"[^>]*height="(\d+)"[^>]*fill="([^"]+)"/g)]
+  expect(segs.length, 'four criteria, four segments').toBe(4)
+  expect(segs.map(m => m[2] === '#fbbf24'), 'two done in the lane colour, two open').toEqual([true, true, false, false])
+  expect(Number(segs[0][1])).toBeGreaterThanOrEqual(14)
+  expect(head?.source, 'the ratio sits beside the segments').toContain('>2/4<')
+})
+
 test('desktop band: the head carries the lane dot, ID, title and bar; the body the PR; native text the stats', async ($, on) => {
   serve(on, BOARD)
 
@@ -1077,34 +1089,56 @@ const rowAt = async (ui: any, id: string, columns: number) => {
   return clientTexts(await ui.drawn({ in: `task:${id}` }))
 }
 
-test('desktop Board tab: a row is one line: the ID, a flat bar, the ratio and the PR with its checks, and no title', async ($, on) => {
+// Every Box a Client's module drew, in order.
+const clientBoxes = (el: any): any[] =>
+  !el || typeof el !== 'object' ? [] : [...(el.type === 'Box' ? [el] : []), ...(el.children ?? []).flatMap(clientBoxes)]
+const keyOf = (el: any) => el.key ?? el.props?.key
+
+test('desktop Board tab: a row is one line: the ID, a bar of flex segments, the ratio and the PR with its checks, and no title', async ($, on) => {
   const ui = await openKanban($, on, { frame: FULL }, 'desktop')
 
   const buttons = await everyButton(ui)
   expect(buttons.map(b => String(b.props.label))).not.toContain('Details')
   expect(buttons.map(b => String(b.props.label))).not.toContain('Close')
   for (const columns of [60, 36]) {
-    const line = (await rowAt(ui, 'TASK-7', columns)).map(textOf).join('')
+    const texts = await rowAt(ui, 'TASK-7', columns)
+    const line = texts.map(textOf).join('')
     expect(line, 'one line').not.toContain('\n')
-    expect(line.length, 'the row stays inside its columns').toBeLessThanOrEqual(columns)
     expect(line.startsWith('TASK-7')).toBe(true)
-    expect(line).toMatch(/━+/)
+    expect(line, 'the bar is boxes, not glyphs that wrap in a proportional font').not.toMatch(/━/)
     expect(line).toContain('#392')
     expect(line, 'the title is not drawn').not.toContain('Busy one')
     expect(line, 'no lane pill').not.toContain('In Progress')
+    for (const t of texts) expect(t.props.wrap, `${textOf(t)} never wraps`).toMatch(/^truncate/)
+    const root = clientBoxes(await ui.drawn({ in: 'task:TASK-7' }))[0]
+    expect(root.props.flexWrap ?? 'nowrap').toBe('nowrap')
   }
   await ui.unmount()
 })
 
-test('desktop Board tab: a row bar is flat and still, its fill the criteria done', async ($, on) => {
+test('desktop Board tab: a row bar has one segment per criterion, the done ones filled, and is still', async ($, on) => {
   const ui = await openKanban($, on, {}, 'desktop')
 
-  const first = (await rowAt(ui, 'TASK-7', 50)).map(textOf)
-  const bar = first.filter(t => /^━+$/.test(t))
-  expect(bar.length, 'a done part and a track').toBe(2)
-  expect(bar[0].length, 'two of four criteria fill half the bar').toBe(Math.round((bar[0].length + bar[1].length) / 2))
+  await ui.resize({ columns: 50, rows: 1, in: 'task:TASK-7' })
+  const first = await ui.drawn({ in: 'task:TASK-7' })
+  const bar = clientBoxes(first).find(b => keyOf(b) === 'bar')
+  expect(bar?.props.flexGrow, 'the bar takes the room the ID and ratio leave').toBe(1)
+  const segs = clientBoxes(bar).filter(b => /^seg-/.test(String(keyOf(b))))
+  expect(segs.length, 'four criteria, four segments').toBe(4)
+  const fills = segs.map(s => s.props.backgroundColor)
+  expect(fills[0]).toBe(fills[1])
+  expect(fills[2]).toBe(fills[3])
+  expect(fills[0], 'two done segments differ from two open ones').not.toBe(fills[2])
   await ui.advance(2000)
-  expect(clientTexts(await ui.drawn({ in: 'task:TASK-7' })).map(textOf), 'nothing animates').toEqual(first)
+  expect(await ui.drawn({ in: 'task:TASK-7' }), 'nothing animates').toEqual(first)
+  await ui.unmount()
+})
+
+// The kit's element descriptions carry no `hover`, so the row highlight is checked on a live render, not here.
+test('desktop Board tab: rows are spaced apart', async ($, on) => {
+  const ui = await openKanban($, on, { frame: FULL }, 'desktop')
+
+  expect(((await ui.find({ key: 'row-TASK-7' })) as any)?.props.paddingY, 'a row has room above and below').toBeGreaterThan(0)
   await ui.unmount()
 })
 

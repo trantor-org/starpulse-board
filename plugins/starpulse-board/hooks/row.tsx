@@ -17,10 +17,6 @@ type Row = {
 const RATIO_W = 6
 const PR_W = 8
 
-/**
- * A desktop Board row on one line as wide as its region: the ID, a flat bar of the criteria done in the lane's colour
- * over a grey track, the k/n ratio, and the PR's checks dot and number. A press or Enter anywhere on it opens the card.
- */
 const BoardRow: ClientModule<Row, true> = (row, surface) => {
   const { Box, Text } = surface.elements
   if (surface.state === undefined) {
@@ -29,24 +25,26 @@ const BoardRow: ClientModule<Row, true> = (row, surface) => {
     surface.onKey((ev) => (ev.key === 'return' || ev.key === 'enter') && open())
     surface.setState(true)
   }
-  const barW = Math.max(0, surface.columns - row.idW - RATIO_W - PR_W - 2)
-  const fill = !row.n || row.k === null ? 0 : Math.round((barW * row.k) / row.n)
+  const barW = Math.max(0, surface.columns - row.idW - RATIO_W - PR_W - 3)
+  const segments = Math.max(1, row.n)
   const ratio = !row.n ? '' : row.k === null ? `${row.n} AC` : `${row.k}/${row.n}`
-
   return (
-    <Box flexDirection="row">
-      <Text color={row.ink}>{row.id.padEnd(row.idW)} </Text>
-      {fill > 0 && <Text color={row.color}>{'━'.repeat(fill)}</Text>}
-      {barW > fill && <Text color={row.track}>{'━'.repeat(barW - fill)}</Text>}
-      <Text color={row.muted}>{` ${ratio}`.padEnd(RATIO_W + 1)}</Text>
-      {row.pr ? (
-        <Box flexDirection="row">
-          <Text color={row.prColor}>● </Text>
-          <Text color={row.muted}>{row.pr.padEnd(PR_W - 2)}</Text>
-        </Box>
-      ) : (
-        <Text>{' '.repeat(PR_W)}</Text>
-      )}
+    <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={1}>
+      <Box flexShrink={0} width={row.idW}>
+        <Text color={row.ink} wrap="truncate">{row.id}</Text>
+      </Box>
+      <Box key="bar" flexDirection="row" flexGrow={1} flexShrink={1} columnGap={barW >= 2 * segments - 1 ? 1 : 0} height={1}>
+        {Array.from({ length: segments }, (_, i) => (
+          <Box key={`seg-${i}`} flexGrow={1} height={1} backgroundColor={row.k !== null && i < row.k ? row.color : row.track} />
+        ))}
+      </Box>
+      <Box flexShrink={0} width={RATIO_W}>
+        <Text color={row.muted} wrap="truncate">{ratio}</Text>
+      </Box>
+      <Box flexShrink={0} width={PR_W} flexDirection="row">
+        {row.pr ? <Text color={row.prColor} wrap="truncate">●</Text> : null}
+        {row.pr ? <Text color={row.muted} wrap="truncate">{` ${row.pr}`}</Text> : null}
+      </Box>
     </Box>
   )
 }
