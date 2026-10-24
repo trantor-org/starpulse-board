@@ -293,6 +293,18 @@ for (const surface of ['desktop', 'terminal']) {
   })
 }
 
+for (const surface of ['desktop', 'terminal']) {
+  test(`${surface} band: stays drawn above a survey, with the survey's own drawing below`, async ($, on) => {
+    serve(on, BOARD)
+
+    await $.command.run(RUN)
+    const ui = await band($, surface, { ...PROPS, hasSurvey: true })
+
+    expect(await ui.find({ key: 'band' })).toBeDefined()
+    expect(await ui.find({ key: 'engine' })).toBeDefined()
+  })
+}
+
 test('the band cost counts up with each main-agent step, before the turn ends', async ($, on) => {
   serve(on, BOARD)
   let usd = 0
