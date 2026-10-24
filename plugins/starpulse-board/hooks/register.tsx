@@ -350,11 +350,9 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // The band is always on: banner D's path, PR facts and stats on a desktop, the held rows on the terminal.
+  // The band is always on: banner D's path, PR facts and stats on a desktop, the held rows on the terminal. A survey
+  // holding the slot draws below it, in what `next` returns, so the band does not vanish until the survey ends.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) {
-      return next(e)
-    }
     const found = (await read($, tasks)) ?? []
     const { Box, Button, Text, Svg, Link } = $.ui.resolve(e) as Remote
     // The plugins beneath (a skin, the engine's own row) draw below the band, as claude-skins composes its own.
