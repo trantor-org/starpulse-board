@@ -118,6 +118,14 @@ const moveTask = async ($: Engine, id: string, to: string) => {
   }
 }
 
+// Hands the task's session to the operator; StarPulse refuses one with no running workflow, and the refusal toasts.
+const takeOver = async ($: Engine, id: string) => {
+  const refused = await post($, '/api/take-over', { task: id })
+  if (refused) {
+    $.ui.toast(refused)
+  }
+}
+
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 // A drawing's pixel width from the surface's columns; a dock not yet measured has none, so it takes the narrowest.
 const pxWidth = (columns: number, lo: number, hi: number) => (Number.isFinite(columns) && columns > 0 ? clamp(Math.floor(columns * CELL_PX), lo, hi) : lo)
@@ -410,6 +418,12 @@ export const register: Register = (on, options) => {
           />
           <Box key="tools" flexGrow={1} flexDirection="row" justifyContent="flex-end" alignItems="center" gap="xs" paddingX="sm">
             {mini && figures([['', lines[0][1]], lines[5]])}
+            {t && !t.interactive && <Button key="make-interactive" label="Make interactive" onPress={() => takeOver($, t.id)} />}
+            {t?.interactive && (
+              <Text key="driving" color={SP.skillText}>
+                driving
+              </Text>
+            )}
             {t?.pull && (
               <Text key="pr">
                 <Link href={`https://github.com/${t.pull.repo}/pull/${t.pull.number}`} label={`#${t.pull.number}`} />

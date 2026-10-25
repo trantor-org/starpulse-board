@@ -1,6 +1,6 @@
 import type { On, RenderElement } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { type El, page, renderTree } from './render'
+import { type El, page, renderTree, type Section } from './render'
 
 // Mounts the desktop Board pane at a narrow and a wide width, and the band, with demo tasks, and draws them as one HTML
 // page. A hooks module can import no file system, so the page goes to the test output between PAGE_START and PAGE_END
@@ -63,7 +63,11 @@ const stream = async function* (event: string, board: string, signal?: AbortSign
   return { value: { code: 0, signal: null } }
 }
 
-const host = (on: On) => {
+// The board a held-task feed sends and a take-over answers; the band draws the task this session holds.
+type Feed = { held?: string; takeOver?: string; toasts?: string[] }
+
+const host = (on: On, feed: Feed = {}) => {
+  const held = feed.held ?? HELD
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as RenderElement)
   on('session.id', () => ({ value: SESSION }))
   on('session.start', ($, e) => e)
@@ -73,10 +77,14 @@ const host = (on: On) => {
   on('env.get', ($, e) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
   on('ui.open', () => ({ value: { isPlaced: true as const } }))
   on('ui.close', () => ({ value: undefined }))
-  on('process.run', () => answer(HELD))
+  on('ui.toast', ($, e) => {
+    feed.toasts?.push(e.text)
+    return { value: undefined }
+  })
+  on('process.run', (_$, e) => answer(e.argv[0] === 'curl' ? (feed.takeOver ?? '{}\n200') : held))
   on('process.spawn', async function* ($, e, next) {
     const isLanes = e.argv.at(-1)?.includes('/api/lanes')
-    return yield* (isLanes ? stream('lanes', LANES, next.signal) : stream('held', HELD, next.signal))
+    return yield* (isLanes ? stream('lanes', LANES, next.signal) : stream('held', held, next.signal))
   })
 }
 
@@ -115,16 +123,60 @@ const drawPane = async ($: any, columns: number) => {
   return tree
 }
 
-const drawBand = async ($: any, columns: number) => {
+// Presses Make interactive when `isPressed`, and says what the band toasted for it.
+const drawBand = async ($: any, columns: number, isPressed = false) => {
   const ui = await $.ui.mount({
     plugin: 'starpulse-board',
     surface: 'desktop',
     component: 'AbovePrompt',
     props: { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: columns, scroll: { offset: 0, bodyRows: 20 }, view: {} },
   })
+  if (isPressed) {
+    await ui.press({ key: 'make-interactive' })
+    await settle()
+  }
   const tree = renderTree((await ui.find({ type: 'Box' })) as El)
   await ui.unmount()
   return tree
+}
+
+// What each test of this file draws, in order; the last test prints them as one page.
+const SECTIONS: Section[] = []
+
+// A task this session holds, and the skill machine its band draws.
+const BUILD = { name: 'build', states: ['test', 'red', 'pass', 'refactor'], current: 'pass', next: { kind: 'skill', name: 'deliver' } }
+const DELIVER = { name: 'deliver', states: ['lint', 'body', 'ci'], current: 'ci', next: { kind: 'operation', name: 'agent-cmd review' } }
+const REVIEW_FIX = { name: 'review-fix', states: ['read', 'fix', 'reply'], current: 'fix', next: null }
+const REFUSAL = 'TASK-7308 has no running workflow to take over'
+
+// The band's states the operator approves, each a held task: its lane, phase, skill and what pressing Make interactive answers.
+const BAND_STATES: { name: string; note: string; held: Record<string, unknown> | null; takeOver?: string }[] = [
+  { name: 'Unattended', note: 'Make interactive is offered.', held: { skill: BUILD } },
+  { name: 'Interactive', note: 'The harness reports the task interactive: the band shows driving.', held: { skill: BUILD, interactive: true } },
+  { name: 'Deliver', note: 'The deliver skill declares an operation next: a square node.', held: { phase: 'deliver', substate: 'pr_opened', skill: DELIVER, prs: pr(5664, 'pending') } },
+  { name: 'No next', note: 'The skill declares no next edge: no arrow.', held: { phase: 'review_fix', skill: REVIEW_FIX, prs: pr(5664, 'pass') } },
+  { name: 'Attention', note: 'Needs attention: the running state takes the failure colour.', held: { skill: BUILD, lane: 'needs_attention', pause_reason: 'pick the skill blue' } },
+  { name: 'Waiting', note: 'Parked: the running state takes the hold colour.', held: { phase: 'deliver', skill: DELIVER, lane: 'waiting', waiting_on: ['TASK-7310'] } },
+  { name: 'Unreported', note: 'No phase and no skill reported: one line, no skill row.', held: { skill: null, phase: '', substate: '' } },
+  { name: 'Empty', note: 'No task held: the band has nothing to draw.', held: null },
+  { name: 'Gone', note: `The session is gone: pressing Make interactive toasts "${REFUSAL}".`, held: { skill: BUILD }, takeOver: `{"error": "${REFUSAL}"}\n409` },
+]
+
+for (const { name, note, held, takeOver } of BAND_STATES) {
+  test(`the band draws the ${name} state at 100, 125 and 150 percent`, async ($, on) => {
+    const { lane = 'in_progress', ...fields } = held ?? {}
+    const toasts: string[] = []
+    const column = [lane, String(lane), [task('TASK-7308', 'Design the next-skill and take-over controls', { assignee: SESSION, phase: 'build', substate: 'red', ...fields })]] as const
+    host(on, { held: boardJson(held ? [column] : []), takeOver, toasts })
+    await $.session.start({ cwd: '/work', surface: 'desktop', isInteractive: true })
+    await settle()
+
+    const band = await drawBand($, 100, takeOver !== undefined)
+    for (const zoom of [1, 1.25, 1.5]) SECTIONS.push({ heading: `Band · ${name}`, columns: 100, note: [note, ...toasts.map(t => `Toast: ${t}`)].join(' '), tree: band, zoom })
+    expect(band.unmapped.filter(u => u.endsWith('not drawn'))).toEqual([])
+    if (held) expect(band.html, 'the band draws its Make interactive button or its driving text').toMatch(/Make interactive|driving/)
+    if (takeOver) expect(toasts).toEqual([REFUSAL])
+  })
 }
 
 test('the demo page draws every demo task at a narrow and a wide width, and the band', { timeoutMs: 60_000 }, async ($, on) => {
@@ -135,19 +187,22 @@ test('the demo page draws every demo task at a narrow and a wide width, and the 
   await settle()
 
   const [narrow, wide, band] = [await drawPane($, 40), await drawPane($, 100), await drawBand($, 100)]
-  const html = page({
-    title: 'starpulse-board desktop demo',
-    sections: [
-      { heading: 'Board pane, narrow', columns: 40, note: 'A docked pane at its narrowest.', tree: narrow },
-      { heading: 'Board pane, wide', columns: 100, tree: wide },
-      { heading: 'Band above the prompt', columns: 100, note: 'The task this demo session holds.', tree: band },
-    ],
-  })
-
-  console.log(`PAGE_START\n${html}PAGE_END`)
+  SECTIONS.unshift(
+    { heading: 'Board pane, narrow', columns: 40, note: 'A docked pane at its narrowest.', tree: narrow },
+    { heading: 'Board pane, wide', columns: 100, tree: wide },
+    { heading: 'Band above the prompt', columns: 100, note: 'The task this demo session holds.', tree: band },
+  )
 
   const ids = DEMO_LANES.flatMap(([, , tasks]) => tasks.map(t => t.id))
   for (const id of ids) expect(wide.html, `${id} is drawn`).toContain(`>${id}<`)
   for (const tree of [narrow, wide, band]) expect(tree.unmapped.filter(u => u.endsWith('not drawn')), 'every row is drawn').toEqual([])
-  expect(html).toContain('TASK-103')
+  expect(wide.html).toContain('TASK-103')
+})
+
+test('the demo page prints every band state at 100, 125 and 150 percent', async () => {
+  const html = page({ title: 'starpulse-board desktop demo', sections: SECTIONS })
+
+  console.log(`PAGE_START\n${html}PAGE_END`)
+
+  for (const { name } of BAND_STATES) expect(SECTIONS.filter(s => s.heading === `Band · ${name}`).map(s => s.zoom)).toEqual([1, 1.25, 1.5])
 })

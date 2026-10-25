@@ -1053,7 +1053,7 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   await settle()
 
   const buttons = await everyButton(ui)
-  expect(buttons.map(b => b.key), 'no Copy or Board button: the PR link and fold only').toEqual(['fold'])
+  expect(buttons.map(b => b.key), 'no Copy or Board button: Make interactive, the PR link and fold only').toEqual(['make-interactive', 'fold'])
   expect(buttons.some(b => b.props.plain), 'native buttons, not plain text').toBe(false)
   const drawings = await ui.findAll({ type: 'Svg' })
   expect(drawings.length, 'head and body').toBe(2)
@@ -1357,4 +1357,118 @@ test('desktop band: a task the board reports no phase for says so rather than gu
   expect(body?.source).toContain('Delivery phase not reported by the board')
   expect(body?.source).not.toContain('>Build<')
   expect(body?.source).not.toContain('class="hot"')
+})
+
+const SKILL = { name: 'build', states: ['test', 'red', 'pass', 'refactor'], current: 'pass' }
+const withSkill = (skill: unknown) => board([['in_progress', 'In Progress', [task({ id: 'PROJ-1', title: 'Add the verbs', phase: 'build', substate: 'red', skill })]]])
+
+test('desktop band: the active skill draws its own blue row, and a declared next skill gets a solid arrow to a ring', async ($, on) => {
+  serve(on, withSkill({ ...SKILL, next: { kind: 'skill', name: 'deliver' } }))
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).toContain('data-row="skill"')
+  expect(body?.source).toContain('#3b82f6')
+  for (const state of SKILL.states) {
+    expect(body?.source).toContain(`>${state}<`)
+  }
+  expect(body?.source).toContain('data-next="skill"')
+  expect(body?.source).toContain('>deliver<')
+})
+
+test('desktop band: a next operation is a square node, not a ring', async ($, on) => {
+  serve(on, withSkill({ ...SKILL, next: { kind: 'operation', name: 'agent-cmd review' } }))
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).toContain('data-next="operation"')
+  expect(body?.source).toContain('>agent-cmd review<')
+})
+
+test('desktop band: a skill with no declared next edge draws no arrow', async ($, on) => {
+  serve(on, withSkill({ ...SKILL, next: null }))
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).toContain('data-row="skill"')
+  expect(body?.source).not.toContain('data-next=')
+})
+
+test('desktop band: a task reporting no skill draws no skill row', async ($, on) => {
+  serve(on, withSkill(null))
+
+  await $.command.run(RUN)
+  const [, body] = await svgs(await band($, 'desktop'))
+  expect(body?.source).not.toContain('data-row="skill"')
+})
+
+// A desktop band over the board `stdout`, whose curl calls `curl` answers; the toasts it shows are collected.
+const takeOverBand = async ($: any, on: On, stdout: string, curl: (argv: readonly string[]) => ReturnType<typeof answer>) => {
+  const toasts: string[] = []
+  const posted: string[][] = []
+  serve(on, stdout, {
+    run: e => {
+      if (e.argv[0] !== 'curl') return answer(0, stdout)
+      posted.push([...e.argv])
+      return curl(e.argv)
+    },
+  })
+  on('env.get', () => ({ value: undefined }))
+  on('ui.toast', ($: any, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  await $.command.run(RUN)
+
+  return { ui: await band($, 'desktop'), toasts, posted }
+}
+
+const INTERACTIVE = (interactive: boolean) => board([['in_progress', 'In Progress', [task({ id: 'PROJ-1', title: 'Add the verbs', interactive })]]])
+
+test('desktop band: an unattended task has a native Make interactive button that posts the take-over', async ($, on) => {
+  const { ui, posted } = await takeOverBand($, on, INTERACTIVE(false), () => answer(0, '{"sent": true}\n200'))
+
+  expect((await ui.find({ key: 'make-interactive' }))?.props.label).toBe('Make interactive')
+  await ui.press({ key: 'make-interactive' })
+  await settle()
+
+  expect(posted.map(a => a.find(x => x.startsWith('http')))).toEqual(['http://localhost:8766/api/take-over'])
+  expect(sent(posted[0]!)).toEqual({ task: 'PROJ-1' })
+  await ui.unmount()
+})
+
+test('desktop band: a take-over StarPulse refuses toasts its reason', async ($, on) => {
+  const { ui, toasts } = await takeOverBand($, on, INTERACTIVE(false), () => answer(0, '{"error": "PROJ-1 has no running workflow to take over"}\n409'))
+
+  await ui.press({ key: 'make-interactive' })
+  await settle()
+
+  expect(toasts).toEqual(['PROJ-1 has no running workflow to take over'])
+  await ui.unmount()
+})
+
+test('desktop band: a take-over that cannot reach StarPulse toasts that', async ($, on) => {
+  const { ui, toasts } = await takeOverBand($, on, INTERACTIVE(false), () => answer(7, ''))
+
+  await ui.press({ key: 'make-interactive' })
+  await settle()
+
+  expect(toasts).toEqual(['Cannot reach StarPulse at http://localhost:8766'])
+  await ui.unmount()
+})
+
+test('desktop band: once the harness reports the task interactive the band shows driving, not the button', async ($, on) => {
+  const { ui } = await takeOverBand($, on, INTERACTIVE(true), () => answer(0, '{"sent": true}\n200'))
+
+  expect(await ui.find({ key: 'make-interactive' })).toBeUndefined()
+  const driving = (await ui.findAll({ type: 'Text' })).find((t: any) => textOf(t) === 'driving')
+  expect(driving?.props.color, 'in the skill blue').toBe('#60a5fa')
+  await ui.unmount()
+})
+
+test('desktop band: an unattended task shows no driving indicator', async ($, on) => {
+  const { ui } = await takeOverBand($, on, INTERACTIVE(false), () => answer(0, ''))
+
+  expect((await ui.findAll({ type: 'Text' })).map(textOf)).not.toContain('driving')
+  await ui.unmount()
 })

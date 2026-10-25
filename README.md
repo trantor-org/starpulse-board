@@ -26,6 +26,16 @@ that collapses the band to its head row. The band draws only the phases the task
 pulses and a link streams into it, under no-preference motion only. A task the board reports no phase for says so
 rather than guessing one. With no held task it stays on and says so; it has no hide button.
 
+When the board serves the task's active skill, a blue row under the phases draws that skill's own machine: its states
+in order (done, the current one pulsing, the rest dim) and, only when the machine declares a next edge, a solid arrow to
+a ring (next skill) or a square (next operation). The row takes the failure colour on Needs attention and the hold
+colour on Waiting. It is drawn attended or not, and none is drawn when the board serves no skill. Its colours are the
+tokens `SP.skill` (`#3b82f6`, Tailwind blue-500) and `SP.skillText` (`#60a5fa`, blue-400) in `hooks/draw.ts`, distinct
+from the green and amber execution machines. The head row's tools carry a native **Make interactive** button, which
+posts `{"task": "TASK-N"}` to StarPulse's `/api/take-over`; a refusal (no running workflow, no Temporal, or StarPulse
+unreachable) is toasted with its reason. Once the board reports the task `interactive`, the button gives way to the text
+`driving`. The approved design, mockup and screenshots are under `design/task-7308/`.
+
 ## Demo
 
 A public page draws the Desktop Board pane at 40 and 100 columns and the band, so a change to either can be reviewed
@@ -35,7 +45,9 @@ unpublishes it (`.github/workflows/demo.yml`, served from the `gh-pages` branch)
 
 The page is built by `plugins/starpulse-board/demo/demo.test.ts`. It mounts the real `Pane` and `AbovePrompt` with
 `$.ui.mount` on the `desktop` surface, fed demo tasks that cover 0/n, partial, full and unknown criterion progress, a
-task with and without a pull request in each check state, a long id, a held task and every lane. `demo/render.ts` turns
+task with and without a pull request in each check state, a long id, a held task and every lane, then the band in each
+state the operator approves (unattended, interactive, deliver, no-next, attention, waiting, unreported, gone and empty)
+at 100, 125 and 150 percent. `demo/render.ts` turns
 the element tree it gets back into HTML and CSS. The testing kit offers no HTML or screenshot renderer, so the test
 prints the page between `PAGE_START` and `PAGE_END` and the workflow cuts it out of the `claude plugin test` output.
 
