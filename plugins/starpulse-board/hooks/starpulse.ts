@@ -1,5 +1,5 @@
 import type { EngineInterface as Engine } from 'claude-code'
-import type { BoardTask, Checks, HeldTask, Lane, Pull } from '../types'
+import type { BoardTask, Checks, HeldTask, Lane, Pull, Skill } from '../types'
 
 // A task as `starpulse board` prints it. An older starpulse leaves out the criteria, the reason and each PR's checks.
 export type RawTask = {
@@ -13,6 +13,8 @@ export type RawTask = {
   pause_reason?: string
   phase?: string | null
   substate?: string | null
+  skill?: Skill | null
+  interactive?: boolean
   prs?: { url: string; number?: number; checks?: string; merged?: boolean; threads?: number | null; behind_main?: number | null; updatedAt?: string }[]
   done_at?: string
 }
@@ -46,6 +48,8 @@ export const taskOf = (t: RawTask, c: Board['columns'][number]): HeldTask => ({
   pull: pullOf(t.prs),
   phase: t.phase ?? '',
   substate: t.substate ?? '',
+  skill: t.skill ?? null,
+  interactive: t.interactive ?? false,
 })
 
 export const heldOf = (board: Board): HeldTask[] => board.columns.flatMap(c => c.tasks.map(t => taskOf(t, c)))

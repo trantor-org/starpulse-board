@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TASK-7308 mod band mockup</title>
+<link rel="icon" href="data:,">
+<style>
+@font-face { font-family: Inter; src: url("@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2"); font-weight: 400 700; }
+@font-face { font-family: "JetBrains Mono"; src: url("@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+/* The mod's SP tokens (draw.ts), plus the proposed --skill pair the operator picks in the bar above. */
+:root {
+  --navy: #262624; --bg2: #1f1e1d; --surface: #2b2a27; --stack: #30302e;
+  --ink: #dbe4f3; --ink3: #b8c4d8; --slate: #94a3b8; --muted: #6b7a93; --track: #334155; --faint: #475569;
+  --agent: #a78bfa;
+  --skill: #3b82f6; --skill-text: #60a5fa;
+  --font: Inter, system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg2); color: var(--ink); font-family: var(--font); font-size: 14px; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+.chrome { padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; border-bottom: 1px solid var(--track); font-size: .85rem; color: var(--slate); }
+.chrome a { color: var(--ink3); text-decoration: none; padding: .15rem .45rem; border-radius: .3rem; }
+.chrome a[aria-current] { background: var(--surface); color: var(--ink); }
+.blues button { font: inherit; font-size: .8rem; color: var(--ink3); background: var(--surface); border: 1px solid var(--track); border-radius: .3rem; padding: .15rem .5rem; cursor: pointer; display: inline-flex; gap: .35rem; align-items: center; }
+.blues button[aria-pressed="true"] { border-color: var(--ink3); color: var(--ink); }
+.sw { width: .7rem; height: .7rem; border-radius: 50%; display: inline-block; }
+.pane { flex: 1; display: flex; flex-direction: column; max-width: 980px; width: 100%; margin: 0 auto; background: var(--navy); }
+.band { border-bottom: 1px solid var(--track); }
+.head { display: flex; align-items: center; }
+.head svg, .body svg { display: block; }
+.tools { flex: 0 0 auto; margin-left: auto; display: flex; justify-content: flex-end; align-items: center; gap: .4rem; padding: 0 .5rem; }
+.tools a { color: var(--agent); font-size: .85rem; text-decoration: none; }
+.tools button { font: inherit; font-size: .8rem; color: var(--ink); background: var(--surface); border: 1px solid var(--faint); border-radius: .35rem; padding: .2rem .55rem; cursor: pointer; white-space: nowrap; }
+.tools button:hover { border-color: var(--slate); }
+.tools button:focus-visible, .composer textarea:focus-visible { outline: 2px solid var(--agent); outline-offset: 1px; }
+.tools .driving { font-size: .8rem; color: var(--skill-text); white-space: nowrap; }
+.stats { display: flex; gap: 1rem; padding: .25rem .6rem .45rem; font-size: .75rem; color: var(--muted); font-family: var(--mono); }
+.transcript { flex: 1; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: .7rem; font-size: .9rem; line-height: 1.45; color: var(--ink3); }
+.transcript .tool { font-family: var(--mono); font-size: .8rem; color: var(--slate); }
+.transcript .you { color: var(--ink); align-self: flex-end; background: var(--surface); padding: .4rem .7rem; border-radius: .6rem; max-width: 70%; }
+.composer { margin: .8rem 1.2rem 1.2rem; border: 1px solid var(--faint); border-radius: .7rem; background: var(--surface); display: flex; }
+.composer textarea { flex: 1; background: transparent; border: 0; color: var(--ink); font: inherit; font-size: .95rem; padding: .7rem .9rem; resize: none; }
+.toast { position: fixed; bottom: 5.5rem; left: 50%; transform: translateX(-50%); background: var(--stack); color: var(--ink); border: 1px solid var(--faint); border-radius: .5rem; padding: .5rem .9rem; font-size: .85rem; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+.legend { max-width: 980px; width: 100%; margin: 0 auto; padding: .5rem 1rem 1rem; font-size: .78rem; color: var(--muted); line-height: 1.5; }
+.legend b { color: var(--slate); font-weight: 600; }
+</style>
+</head>
+<body>
+<nav class="chrome" aria-label="Mockup states">
+  <span>States:</span>
+  <span id="states"></span>
+  <span class="blues" role="group" aria-label="Skill blue">Skill blue: <span id="blues"></span></span>
+</nav>
+<main class="pane">
+  <section class="band" aria-label="starpulse-board band">
+    <div class="head"><span id="head"></span><div class="tools" id="tools"></div></div>
+    <div class="body" id="body"></div>
+    <div class="body" id="skill"></div>
+    <div class="stats" id="stats"></div>
+  </section>
+  <div class="transcript" id="transcript"></div>
+  <div class="composer"><textarea id="input" rows="1" placeholder="Reply to Claude…" aria-label="Message the session"></textarea></div>
+</main>
+<p class="legend"><b>Mockup notes.</b> The head, the green/amber path rows and the chips are the real starpulse-board 0.6.3 <code>draw.ts</code> with its types stripped. New: the <b>blue skill row</b>, which is the active phase skill's own machine. Its solid arrow is a declared edge to the next skill (a ring) or operation (a square), and it is absent when no edge is declared. <b>Make interactive</b> is a native band button. Typing in the session also makes it interactive; that is the harness's own behavior, and the band only reflects it. Skill names and states are placeholders, since no skill-machine YAML exists yet.</p>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="mock.js?v=2"></script>
+</body>
+</html>

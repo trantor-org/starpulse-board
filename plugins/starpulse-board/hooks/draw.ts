@@ -1,4 +1,4 @@
-import type { Checks, HeldTask, Stats } from '../types'
+import type { Checks, HeldTask, Skill, Stats } from '../types'
 
 // StarPulse's :root tokens (starpulse/web/src/style.css), its navy fills swapped for Claude Code's dark greys so the band and
 // the Board sit in the app. An Svg is drawn isolated, so it spells them out.
@@ -29,6 +29,9 @@ export const SP = {
   agent: '#a78bfa',
   agentText: '#c4b5fd',
   ready: '#60a5fa',
+  // The active skill's machine, distinct from the green and amber execution machines: Tailwind blue-500 and blue-400.
+  skill: '#3b82f6',
+  skillText: '#60a5fa',
   // The row bar's track and its criterion ticks: the slate over the chat grey, solid since a Client's colours take no alpha.
   barTrack: '#353839',
   barTick: '#474c50',
@@ -473,6 +476,82 @@ const chain = (nodes: Node[], x0: number, y: number, room: number, prefix: strin
 const PATH_HEIGHT = 58
 const UNREPORTED_HEIGHT = 30
 
+const SKILL_HEIGHT = 30
+
+// A skill's node: the DAG orb's shape in the skill's blue; the state that runs pulses, a flag takes its colour.
+const ring = (cx: number, cy: number, size: number, st: string) => {
+  const color = st === 'bad' ? SP.fail : st === 'hold' ? SP.hold : st ? SP.skill : SP.track
+  const o = st ? 1 : 0.45
+  const isLive = st === 'now'
+
+  return (
+    `<g transform="translate(${cx},${cy}) scale(${size / 12})">` +
+    (isLive ? `<circle class="ping" r="5" fill="none" stroke="${color}"/>` : '') +
+    `<circle r="5" fill="${SP.navy}" stroke="${color}" stroke-opacity="${0.85 * o}"/>` +
+    `<circle${isLive ? ' class="live"' : ''} r="1.7" fill="${color}" fill-opacity="${(st === 'done' ? 0.55 : 0.9) * o}"/></g>`
+  )
+}
+
+const skillInk = (st: string) => (st === 'now' ? SP.skillText : st === 'bad' ? SP.failText : st === 'hold' ? SP.holdText : SP.slate)
+
+// The skill's own links: dashed like the execution DAG's, in blue, streaming into the state that runs.
+const slink = (x1: number, x2: number, y: number, st: string) => {
+  const isHot = st === 'now'
+
+  return `<line${isHot ? ' class="hot"' : ''} x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${SP.skill}" stroke-width="${isHot ? 1.9 : 1}" stroke-opacity="${isHot ? 0.8 : 0.42}" stroke-dasharray="4 2"/>`
+}
+
+// The solid arrow of a declared edge, then the node it reaches: a ring for the next skill, a square for the next operation.
+const skillNext = (next: NonNullable<Skill['next']>, x: number, y: number, W: number) => {
+  const isSkill = next.kind === 'skill'
+  const color = isSkill ? SP.skill : SP.slate
+  const tip = x + 4
+  const nodeX = tip + 6
+  const node = isSkill
+    ? `<circle cx="${nodeX + 6}" cy="${y}" r="5.5" fill="none" stroke="${SP.skill}" stroke-opacity=".7"/>`
+    : `<rect x="${nodeX + 0.5}" y="${y - 5.5}" width="11" height="11" rx="2" fill="none" stroke="${SP.slate}" stroke-opacity=".8"/>`
+
+  return (
+    `<g data-next="${next.kind}">` +
+    `<line x1="${x - 22}" y1="${y}" x2="${tip - 5}" y2="${y}" stroke="${color}" stroke-width="1.4" stroke-opacity=".75"/>` +
+    `<path d="M${tip - 6},${y - 3.5} L${tip},${y} L${tip - 6},${y + 3.5}z" fill="${color}" fill-opacity=".85"/>` +
+    node +
+    `<text x="${nodeX + 18}" y="${y + 4}" font-family="${MONO}" font-size="11" fill="${isSkill ? SP.skillText : SP.slate}">${xml(fit(next.name, 11, W - (nodeX + 18) - 10, true))}</text></g>`
+  )
+}
+
+/**
+ * The active skill's own machine, a row of its own in every mode: its name, its states as a chain spread the way the
+ * substates are, then a solid edge to what runs next only when the machine declares one.
+ */
+const skillRow = (t: HeldTask, skill: Skill, W: number) => {
+  const y = 14
+  const nameW = Math.ceil(width(skill.name, 12, false, 600))
+  const nodes = skill.states.map(name => 20 + Math.ceil(width(name, 11.5)))
+  const used = nodes.reduce((sum, w) => sum + w, 0)
+  const nextW = skill.next ? 56 + Math.ceil(width(skill.next.name, 11, true)) : 0
+  const room = Math.min(W - 24 - nameW - 16 - nextW, used + 240)
+  const span = nodes.length > 1 ? Math.max(30, (room - used) / (nodes.length - 1)) : 0
+  const at = skill.states.indexOf(skill.current ?? '')
+  const flag = t.lane === 'needs_attention' ? 'bad' : t.lane === 'waiting' ? 'hold' : ''
+  const out = [`<text x="10" y="${y + 4.2}" font-family="${FONT}" font-size="12" font-weight="600" fill="${SP.skillText}">${xml(skill.name)}</text>`]
+  let x = 10 + nameW + 16
+  skill.states.forEach((name, i) => {
+    const st = at < 0 ? '' : i < at ? 'done' : i === at ? flag || 'now' : ''
+    if (i) {
+      out.push(slink(x + 8, x + span - 8, y, st))
+      x += span
+    }
+    out.push(`<g>${ring(x + 7, y, 14, st)}<text x="${x + 20}" y="${y + 4}" font-family="${FONT}" font-size="11.5" fill="${skillInk(st)}">${xml(name)}</text></g>`)
+    x += nodes[i] as number
+  })
+  if (skill.next) {
+    out.push(skillNext(skill.next, x + 30, y, W))
+  }
+
+  return `<g data-row="skill">${out.join('')}</g>`
+}
+
 // The two path rows: the phases reached so far, then the current phase's substates and the flag's note. A task the
 // board reports no phase for gets one line saying so, never a guessed phase.
 const pathRows = (t: HeldTask, W: number) => {
@@ -604,6 +683,10 @@ export const bandBodySvg = (t: HeldTask | null, W: number) => {
   const path = pathRows(t, W)
   const parts = [path.body]
   let y = path.h
+  if (t.skill) {
+    parts.push(`<g transform="translate(0,${y})">${skillRow(t, t.skill, W)}</g>`)
+    y += SKILL_HEIGHT
+  }
   const tests = testsOf(t)
   const facts = [...(t.pull ? prChips(t.pull) : []), ...(tests ? [chip(tests.text, tests.color)] : [])]
   if (facts.length) {

@@ -25,6 +25,18 @@ export type HeldTask = {
   /** The delivery phase (`build`, `deliver`, `review_fix`, `parked`) and its substate, empty when the server serves none. */
   phase: string
   substate: string
+  /** The skill the task is in, null when the server serves none. */
+  skill: Skill | null
+  /** Whether the harness reports the task taken over by the operator. */
+  interactive: boolean
+}
+
+/** A phase skill's machine: its states in order, the one held (null when none), and the next edge it declares (null when none). */
+export type Skill = {
+  name: string
+  states: string[]
+  current: string | null
+  next: { kind: 'skill' | 'operation'; name: string } | null
 }
 
 /** What the band's stats footer counts over the session's main-agent turns: cost in USD, tokens and agent time. */

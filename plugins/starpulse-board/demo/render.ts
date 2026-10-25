@@ -148,7 +148,7 @@ export const renderTree = (root: El | string, options: Options = {}): Tree => {
   return { html: draw(root), css: css.join('\n'), unmapped }
 }
 
-type Section = { heading: string; columns: number; note?: string; tree: Tree }
+export type Section = { heading: string; columns: number; note?: string; tree: Tree; zoom?: number }
 
 const STYLES = `
 :root{--sp-xs:4px;--sp-sm:8px;--sp-md:12px;--sp-lg:16px;--sp-xl:24px;--fs-caption:11px;--fs-footnote:12px;--fs-body:13px;--fs-title:15px;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -170,7 +170,7 @@ export const page = ({ title, sections }: { title: string; sections: Section[] }
   const hoverCss = sections.map(s => s.tree.css).filter(Boolean).join('\n')
   const unmapped = [...new Set(sections.flatMap(s => s.tree.unmapped))]
   const body = sections
-    .map(s => `<h2>${esc(s.heading)} · ${s.columns} columns</h2>${s.note ? `<p>${esc(s.note)}</p>` : ''}<div class="pane" style="width:${s.columns * CELL_W}px">${s.tree.html}</div>`)
+    .map(s => `<h2>${esc(s.heading)} · ${s.columns} columns${s.zoom ? ` · ${Math.round(s.zoom * 100)}%` : ''}</h2>${s.note ? `<p>${esc(s.note)}</p>` : ''}<div class="pane" style="width:${s.columns * CELL_W}px${s.zoom ? `;zoom:${s.zoom}` : ''}">${s.tree.html}</div>`)
     .join('\n')
   const gaps = unmapped.length ? `<div class="gaps"><h2>Not drawn by this renderer</h2><p>${unmapped.map(esc).join(', ')}</p></div>` : ''
   return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLES}${hoverCss}</style></head><body><h1>${esc(title)}</h1>\n${body}\n${gaps}</body></html>\n`
