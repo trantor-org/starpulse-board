@@ -1,5 +1,5 @@
 import type { EngineInterface as Engine } from 'claude-code'
-import type { BoardTask, Checks, HeldTask, Lane, Pull, Skill } from '../types'
+import type { Checks, HeldTask, Pull, Skill } from '../types'
 
 // A task as `starpulse board` prints it. An older starpulse leaves out the criteria, the reason and each PR's checks.
 export type RawTask = {
@@ -7,7 +7,6 @@ export type RawTask = {
   title: string
   assignee?: string
   holder?: string
-  moves?: Record<string, unknown>
   waiting_on?: string[]
   criteria?: { text: string; checked?: boolean }[]
   pause_reason?: string
@@ -16,7 +15,6 @@ export type RawTask = {
   skill?: Skill | null
   interactive?: boolean
   prs?: { url: string; number?: number; checks?: string; merged?: boolean; threads?: number | null; behind_main?: number | null; updatedAt?: string }[]
-  done_at?: string
 }
 export type Board = { columns: { state: string; name: string; tasks: RawTask[] }[] }
 
@@ -77,54 +75,6 @@ export async function readBoard($: Engine, filters: string[]): Promise<Board | n
 }
 
 
-// The Board tab's lanes, in the order work moves through them; New and Archived stay off it.
-export const LANES = ['ready', 'waiting', 'in_progress', 'review', 'needs_attention', 'done']
-
-// A Done task leaves the Board tab this long after it reached Done.
-export const DONE_WINDOW_MS = 24 * 3_600_000
-
-// A Done task with no `done_at` (an older starpulse) stays: the lane is folded to its count.
-const isRecent = (t: RawTask, state: string, now: number) => {
-  const doneAt = Date.parse(t.done_at ?? '')
-  return state !== 'done' || Number.isNaN(doneAt) || now - doneAt <= DONE_WINDOW_MS
-}
-
-// When a task last moved: its newest PR update or its Done time; 0 when it carries neither.
-const activeAt = (t: RawTask) =>
-  Math.max(0, ...[t.done_at, ...(t.prs ?? []).map(p => p.updatedAt)].map(at => Date.parse(at ?? '')).filter(at => !Number.isNaN(at)))
-
-// The lanes of a Board that hold a task, each task with the columns it may move to; empty when there is no Board.
-export const openLanes = (board: Board | null, now = 0): Lane[] => {
-  const columns = board?.columns ?? []
-  const names = new Map(columns.map(c => [c.state, c.name]))
-  const task = (t: RawTask, c: Board['columns'][number]): BoardTask => ({
-    ...taskOf(t, c),
-    assignee: t.assignee ?? '',
-    // A move StarPulse marks `allowed: false` would only be refused, so it draws no button.
-    moves: Object.entries(t.moves ?? {})
-      .filter(([, m]) => (m as { allowed?: boolean } | null)?.allowed !== false)
-      .map(([to]) => ({ to, name: names.get(to) ?? to })),
-  })
-  const lane = (c: Board['columns'][number]): Lane => ({
-    state: c.state,
-    name: c.name,
-    // Most recently active first; a stable sort keeps StarPulse's order among ties and the undated.
-    tasks: c.tasks
-      .filter(t => isRecent(t, c.state, now))
-      .sort((a, b) => activeAt(b) - activeAt(a))
-      .map(t => task(t, c)),
-  })
-
-  return LANES.flatMap(state => columns.filter(c => c.state === state))
-    .map(lane)
-    .filter(l => l.tasks.length > 0)
-}
-
-// The open lanes of the whole Board, read once; empty when the Board cannot be read.
-export async function readLanes($: Engine): Promise<Lane[]> {
-  return openLanes(await readBoard($, []), await $.clock.now())
-}
-
 // Waits before starting a child that ended again: a second after one that printed, doubling to half a minute while none does.
 export const retryMs = (tries: number) => Math.min(1000 * 2 ** tries, 30_000)
 
@@ -132,12 +82,6 @@ export const retryMs = (tries: number) => Math.min(1000 * 2 ** tries, 30_000)
 export type Run = { isStopped: boolean; child: ReturnType<Engine['process']['spawn']> | null }
 
 export const newRun = (): Run => ({ isStopped: false, child: null })
-
-// Ends the child now, as leaving its loop does, and keeps `follow` from starting another.
-export const stop = (run: Run) => {
-  run.isStopped = true
-  void run.child?.return({ code: null, signal: null }).catch(() => undefined)
-}
 
 // Runs `argv` for as long as it lives, handing `line` each line it prints, and starts it again once it ends, unless `run` was stopped.
 export async function follow($: Engine, argv: string[], input: string | undefined, line: (text: string) => unknown, run = newRun(), tries = 0) {
