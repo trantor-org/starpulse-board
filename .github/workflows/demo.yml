@@ -1,6 +1,6 @@
 name: demo
 
-# Every pull request renders the desktop Board pane and band to one static page (plugins/starpulse-board/demo) and
+# Every pull request renders the band, on Desktop and in the terminal, to one static page (plugins/starpulse-board/demo) and
 # publishes it to this repository's gh-pages branch, which GitHub Pages serves, under pr-<N>/. The pull request
 # description links it; closing the pull request unpublishes it, which is why that event starts a run too. A push to
 # main republishes main/, the demo of the current build the README links.

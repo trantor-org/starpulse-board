@@ -51,24 +51,10 @@ export type Stats = {
   inputAll: number
 }
 
-/** A column a task may move to: its state id and name. */
-export type Move = { to: string; name: string }
-
-/** A task the Board tab lists: what the band draws of a held task, plus its assignee and the columns it may move to. */
-export type BoardTask = HeldTask & { assignee: string; moves: Move[] }
-
-/** One open lane of the Board tab: its state id, name and tasks. */
-export type Lane = { state: string; name: string; tasks: BoardTask[] }
-
 declare module 'claude-code' {
   interface PluginState {
     'starpulse-board': {
       tasks: HeldTask[] | null
-      openTask: string | null
-      lanes: Lane[] | null
-      folded: string[]
-      expanded: string[]
-      pickedTask: string | null
       stats: Stats
       isMini: boolean
     }

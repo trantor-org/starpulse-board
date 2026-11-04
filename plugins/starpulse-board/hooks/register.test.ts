@@ -37,15 +37,6 @@ const PROPS = {
   view: {},
 }
 
-const PANE_PROPS = {
-  title: 'Task',
-  isFocused: false,
-  bodyColumns: 80,
-  placement: 'inline',
-  scroll: { offset: 0, bodyRows: 20 },
-  view: {},
-} as const
-
 const RUN = { command: 'board', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 
 // The test runner's timer; the plugin's own lib (es2023, no DOM) declares none.
@@ -79,9 +70,6 @@ const serve = (on: any, stdout: string, calls: Calls = {}) => {
 
 const band = ($: any, surface: string, props: object = PROPS) =>
   $.ui.mount({ plugin: 'starpulse-board', surface, component: 'AbovePrompt', props })
-
-const pane = ($: any, surface: string) =>
-  $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: PANE_PROPS, requestId: 'starpulse-board' })
 
 // The colour of the dot a terminal row draws for its task's PR checks.
 const checkColor = async (ui: any, id: string) => ((await ui.find({ key: `checks-${id}` }))?.children[0] as { props: { color: string } } | undefined)?.props.color
@@ -171,82 +159,172 @@ for (const surface of ['terminal', 'desktop'] as const) {
   }
 }
 
-test('Details opens the pane and Close closes it (terminal)', async ($, on) => {
-  const opened: string[] = []
-  serve(on, BOARD, { open: id => opened.push(`open ${id}`), close: id => opened.push(`close ${id}`) })
 
-  await $.command.run(RUN)
-  const ui = await band($, 'terminal')
-  await ui.press({ key: 'details-PROJ-1' })
-  expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Close')
-  expect((await ui.find({ key: 'details-PROJ-2' }))?.props.label).toBe('Details')
-  await ui.press({ key: 'details-PROJ-1' })
+// Every Text a terminal band draws, as its words, a Link read as its label.
+const words = async (ui: any): Promise<string[]> =>
+  (await ui.findAll({ type: 'Text' })).map((el: any) => el.children.map((c: any) => (typeof c === 'object' ? (c?.props?.label ?? '') : String(c))).join(''))
 
-  expect(opened).toEqual(['open starpulse-board', 'close starpulse-board'])
-  expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
-})
+const heldOne = (fields: Record<string, unknown>) => board([[String(fields.lane ?? 'in_progress'), String(fields.column ?? 'In Progress'), [task({ id: 'PROJ-1', title: 'Add the verbs', ...fields })]]])
 
-test('terminal row: ID, title, AC bar and k/n, column, PR and its checks, buttons', async ($, on) => {
+test('terminal band: the head carries the lane icon, ID, title, AC bar and k/n, lane, PR checks and number', async ($, on) => {
   serve(on, BOARD)
 
   await $.command.run(RUN)
   const ui = await band($, 'terminal')
+  const seen = await words(ui)
 
-  for (const text of ['PROJ-1', 'Add the verbs', '██████', '░░░░░░', '2/4', 'In Progress', '#392', 'PROJ-2', '████████████', '4/4', 'Review', '#388']) {
-    expect(await ui.find({ type: 'Text', text }), text).toBeDefined()
+  for (const text of ['PROJ-1', 'Add the verbs', '██████', '░░░░░░', '2/4', 'In Progress', '#392']) {
+    expect(seen, text).toContain(text)
   }
   expect(await checkColor(ui, 'PROJ-1')).toBe('#fbbf24')
-  expect(await checkColor(ui, 'PROJ-2')).toBe('#34d399')
-  expect((await ui.find({ key: 'details-PROJ-1' }))?.props.label).toBe('Details')
+  expect((await ui.findAll({ type: 'Link' })).map((l: any) => l.props.href)).toEqual([`${PULL}/392`])
+  expect(seen, 'the band draws the first held task, as the desktop does').not.toContain('PROJ-2')
+  expect(await ui.find({ key: 'details-PROJ-1' }), 'no Details button: there is no task pane').toBeUndefined()
 })
 
-test('terminal row: a Needs attention reason replaces the title, a Waiting task names what it waits on', async ($, on) => {
-  serve(
-    on,
-    board([
-      ['waiting', 'Waiting', [task({ id: 'PROJ-3', title: 'Retro the milestone', waiting_on: ['PROJ-8', 'PROJ-9'], prs: [] })]],
-      [
-        'needs_attention',
-        'Needs Attention',
-        [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm the target was retired', prs: [] })],
-      ],
-    ]),
-  )
+test('terminal band: the delivery path draws the phases reached and the current substates, the running one ringed', async ($, on) => {
+  serve(on, heldOne({ phase: 'deliver', substate: 'committed' }))
+
+  await $.command.run(RUN)
+  const ui = await band($, 'terminal')
+  const seen = await texts(ui)
+
+  for (const text of ['Build', '5/5', 'Deliver', '2/6', 'lint', 'commit', 'push', 'PR', 'CI', 'ready']) {
+    expect(has(seen, text), text).toBe(true)
+  }
+  expect(has(seen, 'Review'), 'a phase not reached is not drawn').toBe(false)
+  const marks = seen.filter(t => ['●', '◉', '○'].includes(t.text))
+  expect(marks.map(t => t.text)).toEqual(['●', '◉', '●', '●', '◉', '○', '○', '○'])
+  expect(marks[1]?.color, 'the running phase in the run colour').toBe('#fbbf24')
+  expect(marks[0]?.color, 'a finished phase in the done colour').toBe('#34d399')
+})
+
+test('terminal band: a task the board reports no phase for says so rather than guessing one', async ($, on) => {
+  serve(on, BOARD)
+
+  await $.command.run(RUN)
+  const seen = await words(await band($, 'terminal'))
+
+  expect(seen).toContain('Delivery phase not reported by the board')
+  expect(seen).not.toContain('Build')
+})
+
+test('terminal band: a Needs attention reason replaces the title and shows on the path, in the failure colour', async ($, on) => {
+  serve(on, heldOne({ lane: 'needs_attention', column: 'Needs Attention', phase: 'build', substate: 'red_proven', pause_reason: 'Operator: confirm the target was retired', prs: [] }))
+
+  await $.command.run(RUN)
+  const seen = await texts(await band($, 'terminal'))
+
+  expect(seen.filter(t => t.text === 'Operator: confirm the target was retired').map(t => t.color)).toEqual(['#fda4af', '#fda4af'])
+  expect(has(seen, 'Add the verbs')).toBe(false)
+  expect(has(seen, 'Needs attention')).toBe(true)
+})
+
+test('terminal band: a Waiting task names what it waits on', async ($, on) => {
+  serve(on, heldOne({ lane: 'waiting', column: 'Waiting', waiting_on: ['PROJ-8', 'PROJ-9'], prs: [] }))
+
+  await $.command.run(RUN)
+  const seen = await words(await band($, 'terminal'))
+
+  expect(seen).toContain('waiting on PROJ-8, PROJ-9')
+  expect(seen).not.toContain('Add the verbs')
+})
+
+test('terminal band: no checked data draws a count without a bar, no criteria draws neither', async ($, on) => {
+  let current = heldOne({ criteria: [{ text: 'One' }, { text: 'Two' }, { text: 'Three' }] })
+  serve(on, '', { run: () => answer(0, current) })
+
+  await $.command.run(RUN)
+  const seen = await words(await band($, 'terminal'))
+  expect(seen).toContain('3 criteria')
+  expect(seen.some(t => /[█░]/.test(t))).toBe(false)
+
+  current = heldOne({ criteria: undefined })
+  await $.command.run(RUN)
+  const none = await words(await band($, 'terminal'))
+  expect(none.some(t => /[█░]|criteri/.test(t))).toBe(false)
+})
+
+const TERM_SKILL = { name: 'build', states: ['test', 'red', 'pass', 'refactor'], current: 'pass' }
+
+test('terminal band: the active skill draws its own blue row, with an arrow to a declared next skill', async ($, on) => {
+  serve(on, heldOne({ phase: 'build', substate: 'red_proven', skill: { ...TERM_SKILL, next: { kind: 'skill', name: 'deliver' } } }))
+
+  await $.command.run(RUN)
+  const ui = await band($, 'terminal')
+  const seen = await texts(ui)
+
+  expect(seen.find(t => t.text === 'build')?.color).toBe('#60a5fa')
+  for (const state of TERM_SKILL.states) {
+    expect(has(seen, state), state).toBe(true)
+  }
+  expect(await ui.find({ key: 'next-skill' })).toBeDefined()
+  expect(has(seen, 'deliver')).toBe(true)
+})
+
+test('terminal band: a next operation is a square node; no next edge draws no arrow; no skill draws no row', async ($, on) => {
+  let current = heldOne({ skill: { ...TERM_SKILL, next: { kind: 'operation', name: 'agent-cmd review' } } })
+  serve(on, '', { run: () => answer(0, current) })
+  await $.command.run(RUN)
+  let ui = await band($, 'terminal')
+  expect(await ui.find({ key: 'next-operation' })).toBeDefined()
+  expect(await words(ui)).toContain('agent-cmd review')
+  await ui.unmount()
+
+  current = heldOne({ skill: { ...TERM_SKILL, next: null } })
+  await $.command.run(RUN)
+  ui = await band($, 'terminal')
+  expect(await ui.find({ key: 'skill' })).toBeDefined()
+  expect(await ui.find({ key: 'next-skill' })).toBeUndefined()
+  expect(await ui.find({ key: 'next-operation' })).toBeUndefined()
+  await ui.unmount()
+
+  current = heldOne({ skill: null })
+  await $.command.run(RUN)
+  ui = await band($, 'terminal')
+  expect(await ui.find({ key: 'skill' })).toBeUndefined()
+})
+
+test('terminal band: the PR facts, the tests and the session stats', async ($, on) => {
+  serve(on, heldOne({ phase: 'deliver', substate: 'pushed', prs: [{ url: `${PULL}/392`, number: 392, checks: 'pending', threads: 2, behind_main: 0 }] }))
+
+  await $.command.run(RUN)
+  const seen = await words(await band($, 'terminal'))
+
+  for (const text of ['checks running', '2 open threads', 'up to date', 'tests GREEN', 'cost', '$0.00', 'turns', 'reuse']) {
+    expect(seen, text).toContain(text)
+  }
+})
+
+test('terminal band: the fold arrow folds it to its head line with the cost and turns, and back', async ($, on) => {
+  serve(on, heldOne({ phase: 'deliver', substate: 'pushed' }))
+
+  await $.command.run(RUN)
+  const ui = await band($, 'terminal')
+  expect((await ui.find({ key: 'fold' }))?.props.label).toBe('▾')
+  await ui.press({ key: 'fold' })
+  expect((await ui.find({ key: 'fold' }))?.props.label).toBe('▴')
+  const folded = await words(ui)
+  expect(await ui.find({ key: 'stats' })).toBeUndefined()
+  expect(await ui.find({ key: 'phases' })).toBeUndefined()
+  for (const text of ['PROJ-1', '$0.00', 'turns', 'tests GREEN']) {
+    expect(folded, text).toContain(text)
+  }
+  await ui.press({ key: 'fold' })
+  expect(await ui.find({ key: 'stats' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('terminal band: with no held task it stays on and says so, with no take-over or PR', async ($, on) => {
+  serve(on, '', { run: () => answer(0, board([['ready', 'Ready', []]])) })
 
   await $.command.run(RUN)
   const ui = await band($, 'terminal')
 
-  expect(await ui.find({ type: 'Text', text: 'waiting on PROJ-8, PROJ-9' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Retro the milestone' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'Operator: confirm the target was retired' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Investigate the alert' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'Needs attention' })).toBeDefined()
-  expect(await ui.find({ key: 'checks-PROJ-3' })).toBeUndefined()
-})
-
-test('terminal row: no checked data draws a count without a bar, no criteria draws neither', async ($, on) => {
-  serve(
-    on,
-    board([
-      [
-        'in_progress',
-        'In Progress',
-        [
-          task({ id: 'PROJ-5', title: 'Text only', criteria: [{ text: 'One' }, { text: 'Two' }, { text: 'Three' }] }),
-          task({ id: 'PROJ-6', title: 'Older starpulse', criteria: undefined }),
-        ],
-      ],
-    ]),
-  )
-
-  await $.command.run(RUN)
-  const ui = await band($, 'terminal')
-
-  expect(await ui.find({ type: 'Text', text: '3 criteria' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /[█░]/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /\d\/\d/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'Older starpulse' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /criteria/ })).toBeDefined()
+  expect(await words(ui)).toContain('No task held')
+  expect(await ui.find({ key: 'band' })).toBeDefined()
+  expect(await ui.find({ key: 'make-interactive' })).toBeUndefined()
+  expect(await ui.find({ type: 'Link' })).toBeUndefined()
 })
 
 const svgs = async (ui: any) => ((await ui.findAll({ type: 'Svg' })) as any[]).map(x => x.props as { source: string; alt: string })
@@ -388,104 +466,6 @@ test('desktop band: the head animates only under no-preference motion, and only 
   expect(still).not.toContain('class="live"')
 })
 
-test('terminal pane: ID, title, lane and holder, reason, criteria with ticks, PR and its checks', async ($, on) => {
-  serve(
-    on,
-    board([
-      [
-        'needs_attention',
-        'Needs Attention',
-        [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm it', assignee: SESSION })],
-      ],
-    ]),
-  )
-
-  await $.command.run(RUN)
-  const ui = await band($, 'terminal')
-  await ui.press({ key: 'details-PROJ-4' })
-  const pane_ = await pane($, 'terminal')
-
-  for (const text of ['PROJ-4', 'Investigate the alert', 'Needs attention', 'Operator: confirm it', 'Acceptance criteria 2/4', '✓ Criterion 1', '○ Criterion 3', 'trantor-org/starpulse#392', 'checks running']) {
-    expect(await pane_.find({ type: 'Text', text }), text).toBeDefined()
-  }
-  expect(await pane_.find({ type: 'Text', text: /held by session-1/ })).toBeDefined()
-})
-
-test('terminal pane: a task with no checked data lists its criteria without ticks', async ($, on) => {
-  serve(on, board([['in_progress', 'In Progress', [task({ id: 'PROJ-5', title: 'Text only', criteria: [{ text: 'One' }, { text: 'Two' }], prs: [] })]]]))
-
-  await $.command.run(RUN)
-  await (await band($, 'terminal')).press({ key: 'details-PROJ-5' })
-  const pane_ = await pane($, 'terminal')
-
-  expect(await pane_.find({ type: 'Text', text: 'Acceptance criteria 2' })).toBeDefined()
-  expect(await pane_.find({ type: 'Text', text: '· One' })).toBeDefined()
-  expect(await pane_.find({ type: 'Text', text: /[✓○]/ })).toBeUndefined()
-})
-
-for (const surface of ['desktop', 'mobile'] as const) {
-  test(`pane Svg: ID, title, lane and holder, reason, criteria list and PR (${surface})`, async ($, on) => {
-    serve(
-      on,
-      board([
-        [
-          'needs_attention',
-          'Needs Attention',
-          [task({ id: 'PROJ-4', title: 'Investigate the alert', pause_reason: 'Operator: confirm it' })],
-        ],
-      ]),
-    )
-
-    await $.command.run(RUN)
-    const svg = await drawn(await pane($, surface))
-
-    for (const text of ['PROJ-4', 'Investigate the alert', 'Operator: confirm it', 'ACCEPTANCE CRITERIA', '2/4', 'Criterion 1', 'Criterion 4', '#392', 'PULL REQUEST', 'checks running']) {
-      expect(svg?.source, text).toContain(text)
-    }
-    expect(svg?.alt).toContain('PROJ-4')
-    expect(svg?.alt).toContain('Needs attention')
-    expect(svg?.source).toContain('@media (prefers-reduced-motion: no-preference)')
-  })
-}
-
-test('the pane shows the first held task when none was picked', async ($, on) => {
-  serve(on, BOARD)
-
-  await $.command.run(RUN)
-  const svg = await drawn(await pane($, 'desktop'))
-
-  expect(svg?.source).toContain('PROJ-1')
-})
-
-// Registered sessions besides the key files beside them: this one, one in tmux session task-7, an interactive one in no
-// tmux pane (a desktop app session), and a background one in no tmux pane.
-// Stands in for another dock plugin (filetree): a second plugin that opens its own pane a second into the session, then one more.
-const FILES = {
-  name: 'files',
-  register(on: On) {
-    on('session.start', async ($, e, next) => {
-      $.clock.after(1000, async () => {
-        await $.ui.open({ id: 'filetree', title: 'Files' })
-        await $.ui.open({ id: 'other', title: 'Other' })
-      })
-
-      return next(e)
-    })
-  },
-}
-
-// A second plugin that closes the Board tab the way the person does, on /close-board.
-const CLOSER = {
-  name: 'closer',
-  register(on: On) {
-    on('command.run', { command: 'close-board' }, async $ => {
-      await $.ui.close({ id: 'starpulse-kanban' })
-
-      return { text: 'closed' }
-    })
-  },
-}
-
 // A child's output the test writes as it goes; end() exits the child, as a server restart ends curl.
 const feed = () => {
   const queue: (string | null)[] = []
@@ -500,8 +480,6 @@ const feed = () => {
     write: (text: string) => push(text),
     // One frame of the held-task stream, carrying `board` as the server sends it.
     held: (board: string) => push(`event: held\ndata: ${board}\n\n`),
-    // One frame of the lanes stream.
-    lanes: (board: string) => push(`event: lanes\ndata: ${board}\n\n`),
     end: () => push(null),
     // The engine kills the child when the loop is left or `signal` aborts; the fake notes it and ends the stream.
     async *chunks(signal?: AbortSignal) {
@@ -528,7 +506,6 @@ type Host = {
   spawned?: string[][]
   everys?: number[]
   held?: Feed[]
-  lanes?: Feed[]
   afters?: number[]
   hasClock?: boolean
   noFrame?: boolean
@@ -537,16 +514,20 @@ type Host = {
   posted?: string[][]
   post?: (argv: readonly string[]) => ReturnType<typeof answer>
   toasts?: string[]
+  registered?: string[]
 }
 
-// Stands in for the engine and the host: tmux, and held-task and lanes streams
+// Stands in for the engine and the host: tmux, and a held-task stream
 // that send nothing until the test feeds them.
 // A test that mocks the clock says so with hasClock, since mock.clock answers clock.every itself.
 const sessionsHost = (on: On, host: Host = {}) => {
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as RenderElement)
   on('session.id', () => ({ value: SESSION }))
   on('session.start', ($, e) => e)
-  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('command.register', ($, e) => {
+    host.registered?.push(e.name)
+    return { value: { command: e.name } }
+  })
   if (!host.hasClock) {
     on('clock.every', ($, e) => {
       host.everys?.push(e.ms)
@@ -588,8 +569,7 @@ const sessionsHost = (on: On, host: Host = {}) => {
   }
   on('process.spawn', async function* ($, e, next) {
     host.spawned?.push([...e.argv])
-    const isLanes = e.argv.at(-1)?.includes('/api/lanes')
-    const child = (isLanes ? host.lanes : host.held)?.shift() ?? feed()
+    const child = host.held?.shift() ?? feed()
     return yield* child.chunks(next.signal)
   })
 }
@@ -599,232 +579,8 @@ const start = async ($: any, surface: string) => {
   await settle()
 }
 
-// The whole Board as `starpulse board` prints it: a Ready task, one In Progress held by session-2 (tmux session task-7),
-// and the New and Done columns the Board tab leaves out.
-const KANBAN = board([
-  ['new', 'New', [task({ id: 'TASK-9', title: 'Unshaped' })]],
-  ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', assignee: '@agent-standard-medium', moves: { in_progress: { allowed: true }, waiting: { allowed: true } } })]],
-  ['waiting', 'Waiting', []],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2', moves: { review: { allowed: true }, ready: { allowed: false, reason: 'made by operator, not agent' } } })]],
-  ['review', 'Review', []],
-  ['needs_attention', 'Needs Attention', []],
-  ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
-])
-
-// The Board with Ready open first, so a desktop test need not unfold it.
-const KANBAN_OPEN = board([
-  ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', assignee: '@agent-standard-medium', moves: { in_progress: { allowed: true }, waiting: { allowed: true } } })]],
-])
-
-const kanbanPane = ($: any, surface = 'terminal') =>
-  $.ui.mount({ plugin: 'starpulse-board', surface, component: 'Pane', props: { ...PANE_PROPS, placement: 'dock' }, requestId: 'starpulse-kanban' })
-
-// The Board tab, opened from /kanban the way a person would. Each test unmounts its drawing.
-// An Svg's drawn width: its width prop, else the markup's own, which a surface caps at the slot.
-const drawnWidth = (s: any) => (s.props.width ?? Number(/^<svg[^>]* width="([\d.]+)"/.exec(s.props.source)?.[1])) as number
-
-const openKanban = async ($: any, on: On, host: Host = {}, surface = 'terminal') => {
-  const stream = host.lanes?.[0] ?? feed()
-  sessionsHost(on, { lanes: [stream], ...host })
-  await start($, surface)
-  await $.command.run({ ...RUN, command: 'kanban' })
-  if (!host.noFrame) stream.lanes(host.frame ?? KANBAN)
-  await settle()
-  return kanbanPane($, surface)
-}
-
 // The JSON body a curl call sends.
 const sent = (argv: readonly string[]) => JSON.parse(argv[argv.indexOf('--data') + 1] ?? 'null')
-
-// Every lane the Board tab draws holds a task.
-const FULL = board([
-  ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one' })]],
-  ['waiting', 'Waiting', [task({ id: 'TASK-11', title: 'Waiting one', waiting_on: ['TASK-7'] })]],
-  ['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', assignee: 'session-2' })]],
-  ['review', 'Review', [task({ id: 'TASK-12', title: 'Reviewed one' })]],
-  ['needs_attention', 'Needs attention', [task({ id: 'TASK-13', title: 'Stuck one', pause_reason: 'operator' })]],
-  ['done', 'Done', [task({ id: 'TASK-1', title: 'Old' })]],
-])
-
-const laneButtons = async (ui: any) =>
-  (await ui.findAll({ type: 'Button' })).map((b: any) => String(b.props.label)).filter((label: string) => /^[▾▸] /.test(label))
-
-test('the Board tab lists the lanes Ready, Waiting, In Progress, Review, Needs attention, Done', async ($, on) => {
-  const ui = await openKanban($, on, { frame: FULL })
-
-  expect(await laneButtons(ui)).toEqual(['▸ Ready 1', '▸ Waiting 1', '▾ In Progress 1', '▾ Review 1', '▾ Needs attention 1', '▸ Done 1'])
-  await ui.unmount()
-})
-
-test('the Board tab hides a lane with no task', async ($, on) => {
-  const ui = await openKanban($, on)
-
-  expect(await laneButtons(ui)).toEqual(['▸ Ready 1', '▾ In Progress 1', '▸ Done 1'])
-  expect(await ui.find({ key: 'lane:waiting' })).toBeUndefined()
-  expect(await ui.find({ key: 'lane:review' })).toBeUndefined()
-  expect(await ui.find({ key: 'lane:needs_attention' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('In Progress, Review and Needs attention start open; Ready, Waiting and Done start folded', async ($, on) => {
-  const ui = await openKanban($, on, { frame: FULL })
-
-  for (const id of ['TASK-7', 'TASK-12', 'TASK-13']) expect(await ui.find({ key: `task:${id}` }), `${id} is open`).toBeDefined()
-  for (const id of ['TASK-10', 'TASK-11', 'TASK-1']) expect(await ui.find({ key: `task:${id}` }), `${id} is folded`).toBeUndefined()
-  expect((await ui.find({ key: 'lane:done' }))?.props.label, 'Done folds to its count').toBe('▸ Done 1')
-  await ui.unmount()
-})
-
-// The dock's own grey is Claude Code's: the Board paints no root fill over it.
-for (const [state, noFrame] of [['lanes', false], ['no frame yet', true]] as const) {
-  test(`the Board tab draws on the dock's own grey with ${state}`, async ($, on) => {
-    const ui = await openKanban($, on, { noFrame })
-
-    expect((await ui.find({ key: 'board-fill' }))?.props.backgroundColor).toBeUndefined()
-    await ui.unmount()
-  })
-}
-
-test('pressing a lane header folds and unfolds it', async ($, on) => {
-  const ui = await openKanban($, on)
-
-  await ui.press({ key: 'lane:in_progress' })
-  await ui.press({ key: 'lane:ready' })
-
-  expect((await ui.find({ key: 'lane:in_progress' }))?.props.label).toBe('▸ In Progress 1')
-  expect(await ui.find({ key: 'task:TASK-7' })).toBeUndefined()
-  expect((await ui.find({ key: 'task:TASK-10' }))?.props.label).toBe('TASK-10 Ready one')
-  await ui.unmount()
-})
-
-test('a Ready task starts a session through StarPulse, then switches tmux to it', async ($, on) => {
-  const posted: string[][] = []
-  const switched: string[][] = []
-  const ui = await openKanban($, on, { posted, switched })
-
-  await ui.press({ key: 'lane:ready' })
-  await ui.press({ key: 'task:TASK-10' })
-  expect((await ui.find({ key: 'session:TASK-10' }))?.props.label).toBe('Start session')
-  await ui.press({ key: 'session:TASK-10' })
-
-  expect(posted.map(a => a.find(x => x.startsWith('http')))).toEqual(['http://localhost:8766/api/start'])
-  expect(sent(posted[0]!)).toEqual({ task: 'TASK-10', assignee: '@agent-standard-medium', harness: 'claude' })
-  expect(switched).toEqual([['tmux', 'switch-client', '-t', 'task-10']])
-  await ui.unmount()
-})
-
-test('an In Progress task goes to its live session without starting one', async ($, on) => {
-  const posted: string[][] = []
-  const switched: string[][] = []
-  const ui = await openKanban($, on, { posted, switched })
-
-  await ui.press({ key: 'task:TASK-7' })
-  expect((await ui.find({ key: 'session:TASK-7' }))?.props.label).toBe('Go to session')
-  await ui.press({ key: 'session:TASK-7' })
-
-  expect(posted).toEqual([])
-  expect(switched).toEqual([['tmux', 'switch-client', '-t', 'task-7']])
-  await ui.unmount()
-})
-
-test('a move button moves the task through StarPulse and reads no Board', async ($, on) => {
-  const posted: string[][] = []
-  const ran: string[][] = []
-  const ui = await openKanban($, on, { posted, ran })
-
-  await ui.press({ key: 'task:TASK-7' })
-  expect((await ui.find({ key: 'move:TASK-7:review' }))?.props.label).toBe('→ Review')
-  const before = ran.length
-  await ui.press({ key: 'move:TASK-7:review' })
-  await settle()
-
-  expect(posted.map(a => a.find(x => x.startsWith('http')))).toEqual(['http://localhost:8766/api/move'])
-  expect(sent(posted[0]!)).toEqual({ task: 'TASK-7', to: 'review' })
-  expect(ran.slice(before).filter(argv => argv[0] !== 'curl')).toEqual([])
-  await ui.unmount()
-})
-
-test('a lanes frame from the stream redraws the open Board tab with no starpulse run', async ($, on) => {
-  const stream = feed()
-  const ran: string[][] = []
-  const spawned: string[][] = []
-  const ui = await openKanban($, on, { lanes: [stream], ran, spawned })
-  const before = ran.length
-
-  stream.lanes(board([['review', 'Review', [task({ id: 'TASK-11', title: 'Just arrived', assignee: 'session-3' })]]]))
-  await settle()
-
-  expect((await ui.find({ key: 'task:TASK-11' }))?.props.label).toBe('TASK-11 Just arrived')
-  expect(await ui.find({ key: 'task:TASK-7' })).toBeUndefined()
-  expect(ran.slice(before)).toEqual([])
-  expect(spawned.find(argv => argv.at(-1)?.includes('/api/lanes'))?.at(-1)).toBe(
-    'http://localhost:8766/api/lanes?state=ready&state=waiting&state=in_progress&state=review&state=needs_attention&state=done',
-  )
-  await ui.unmount()
-})
-
-test('a Board tab drawn with no lanes, as one left in the dock across /clear, follows the lanes stream', async ($, on) => {
-  const stream = feed()
-  const spawned: string[][] = []
-  sessionsHost(on, { lanes: [stream], spawned })
-  await start($, 'terminal')
-  const ui = await kanbanPane($)
-  await settle()
-
-  stream.lanes(KANBAN)
-  await settle()
-
-  expect(spawned.filter(argv => argv.at(-1)?.includes('/api/lanes')).length).toBe(1)
-  expect((await ui.find({ key: 'task:TASK-7' }))?.props.label).toBe('TASK-7 Busy one')
-  await ui.unmount()
-})
-
-test('closing the Board tab ends the stream child and registers no timer', { plugins: [CLOSER] }, async ($, on) => {
-  const stream = feed()
-  const afters: number[] = []
-  const everys: number[] = []
-  const ui = await openKanban($, on, { lanes: [stream], afters, everys })
-  expect(stream.state.isClosed).toBe(false)
-
-  await $.command.run({ ...RUN, command: 'close-board' })
-  await settle()
-
-  expect(stream.state.isClosed).toBe(true)
-  expect(afters).toEqual([])
-  expect(everys).toEqual([])
-  await ui.unmount()
-})
-
-test('reopening the Board tab follows a new stream, and opening it twice follows one', { plugins: [CLOSER] }, async ($, on) => {
-  const [first, second] = [feed(), feed()]
-  const spawned: string[][] = []
-  const ui = await openKanban($, on, { lanes: [first, second], spawned })
-  await $.command.run({ ...RUN, command: 'kanban' })
-  await settle()
-  const lanesStreams = () => spawned.filter(argv => argv.at(-1)?.includes('/api/lanes')).length
-  expect(lanesStreams()).toBe(1)
-
-  await $.command.run({ ...RUN, command: 'close-board' })
-  await $.command.run({ ...RUN, command: 'kanban' })
-  second.lanes(KANBAN)
-  await settle()
-
-  expect(lanesStreams()).toBe(2)
-  expect(first.state.isClosed).toBe(true)
-  expect((await ui.find({ key: 'task:TASK-7' }))?.props.label).toBe('TASK-7 Busy one')
-  await ui.unmount()
-})
-
-test('a refused move shows the server\'s reason as a toast', async ($, on) => {
-  const toasts: string[] = []
-  const ui = await openKanban($, on, { toasts, post: () => answer(0, '{"error": "TASK-7 cannot move from in_progress to review"}\n409') })
-
-  await ui.press({ key: 'task:TASK-7' })
-  await ui.press({ key: 'move:TASK-7:review' })
-
-  expect(toasts).toEqual(['TASK-7 cannot move from in_progress to review'])
-  await ui.unmount()
-})
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`the band draws what the held-task stream sends, with no starpulse run (${surface})`, async ($, on) => {
@@ -839,8 +595,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await settle()
 
     if (surface === 'terminal') {
-      expect(await ui.find({ key: 'details-PROJ-1' })).toBeDefined()
-      expect(await ui.find({ key: 'details-PROJ-2' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'PROJ-1' })).toBeDefined()
     } else {
       expect((await drawn(ui))?.alt).toContain('PROJ-1')
     }
@@ -878,8 +633,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await settle()
 
     if (surface === 'terminal') {
-      expect(await ui.find({ key: 'details-PROJ-9' })).toBeDefined()
-      expect(await ui.find({ key: 'details-PROJ-1' })).toBeUndefined()
+      expect(await ui.find({ type: 'Text', text: 'PROJ-9' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'PROJ-1' })).toBeUndefined()
     } else {
       expect((await drawn(ui))?.alt).toContain('PROJ-9')
     }
@@ -888,12 +643,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 // The Nerd Font v3 icons the mod draws by default, and the plain characters `glyphs: plain` swaps in.
-const NERD = { inProgress: '', pending: '', pass: '', move: '', board: '', go: '', pr: '' }
-const PLAIN = { inProgress: '▶', pending: '●', pass: '✓', move: '→', board: '▦', go: '↗', pr: '#' }
+const NERD = { inProgress: '', pending: '' }
+const PLAIN = { inProgress: '▶', pending: '●' }
 
-const LANE_COLORS = { in_progress: '#fbbf24', review: '#a78bfa', needs_attention: '#fb7185', ready: '#60a5fa', waiting: '#94a3b8', done: '#34d399' }
-
-// Every lane, each with one task that holds a PR and criteria, for the Board pane's colours.
+// A task in every lane but Done, each with a PR and criteria.
 const COLOURED = board([
   ['ready', 'Ready', [task({ id: 'TASK-10', title: 'Ready one', moves: { in_progress: { allowed: true } } })]],
   ['waiting', 'Waiting', [task({ id: 'TASK-11', title: 'Waits', waiting_on: ['TASK-7'] })]],
@@ -907,7 +660,6 @@ type Seen = { text: string; color?: string; bold?: boolean }[]
 const texts = async (tree: any): Promise<Seen> =>
   (await tree.findAll({ type: 'Text' })).map((el: any) => ({ text: el.children.join(''), color: el.props.color, bold: el.props.bold }))
 const has = (seen: Seen, text: string) => seen.some(t => t.text === text)
-const colorOf = (seen: Seen, text: string) => seen.find(t => t.text === text)?.color
 
 for (const glyphs of ['nerd', 'plain'] as const) {
   const set = glyphs === 'nerd' ? NERD : PLAIN
@@ -924,88 +676,7 @@ for (const glyphs of ['nerd', 'plain'] as const) {
     expect(has(held, set.inProgress), 'lane icon').toBe(true)
     expect(has(held, set.pending), 'checks glyph').toBe(true)
   })
-
-  test(`glyphs=${glyphs}: the Board tab draws ${glyphs} icons`, { options: { glyphs } }, async ($, on) => {
-    const ui = await openKanban($, on, { frame: COLOURED })
-    await ui.press({ key: 'task:TASK-7' })
-    const tab = await texts(ui)
-
-    // Refresh, lane icon, PR glyph, then the move arrow and the go icon once a task is picked.
-    expect(has(tab, set.inProgress), 'lane icon').toBe(true)
-    expect(has(tab, `${set.move} Review`), 'move arrow').toBe(true)
-    expect(has(tab, `${set.go} Go to session`), 'go icon').toBe(true)
-    expect(has(tab, `${set.pr} #392`), 'pr icon').toBe(true)
-    await ui.unmount()
-  })
 }
-
-test('the Board tab colours each lane header and icon by its lane', async ($, on) => {
-  const ui = await openKanban($, on, { frame: COLOURED })
-  const seen = await texts(ui)
-
-  const names = { in_progress: 'IN PROGRESS', review: 'REVIEW', needs_attention: 'NEEDS ATTENTION', ready: 'READY', waiting: 'WAITING' } as const
-  for (const [lane, name] of Object.entries(names)) {
-    const header = seen.find(t => t.text === name)
-    expect(header?.color, name).toBe(LANE_COLORS[lane as keyof typeof LANE_COLORS])
-    expect(header?.bold, name).toBe(true)
-  }
-  // The lane's count sits beside it, dimmer.
-  expect(colorOf(seen, '1')).toBe('#6b7a93')
-  await ui.unmount()
-})
-
-test('a Board row draws the ID, title, four-cell bar and PR check icon', async ($, on) => {
-  const ui = await openKanban($, on, { frame: COLOURED })
-
-  const seen = await texts(ui)
-  expect(colorOf(seen, 'TASK-7')).toBe('#94a3b8')
-  expect(colorOf(seen, 'Busy one')).toBe('#dbe4f3')
-  expect(colorOf(seen, '██')).toBe('#fbbf24')
-  expect(colorOf(seen, '░░')).toBe('#334155')
-  expect(colorOf(seen, NERD.pending)).toBe('#fbbf24')
-  // A reason replaces the title in fail-text; a waiting task says what it waits on.
-  expect(colorOf(seen, 'Operator: pick one')).toBe('#fda4af')
-  await ui.press({ key: 'lane:waiting' })
-  expect(colorOf(await texts(ui), 'waiting on TASK-7')).toBe('#94a3b8')
-  await ui.unmount()
-})
-
-test('a picked task opens its title, holder, criteria, PR and actions coloured by target lane', async ($, on) => {
-  const ui = await openKanban($, on, { frame: COLOURED })
-
-  await ui.press({ key: 'task:TASK-7' })
-  const seen = await texts(ui)
-  const buttons = await ui.findAll({ type: 'Button' })
-  const first = (key: string) => (buttons.find((b: any) => b.key === key) as any)?.children[0]?.props.color
-
-  expect(seen.filter(t => t.text === 'Busy one').length, 'row and detail').toBe(2)
-  expect(colorOf(seen, 'session-2'), 'holder').toBe('#94a3b8')
-  expect(colorOf(seen, '2/4 criteria')).toBe('#6b7a93')
-  expect(colorOf(seen, `${NERD.pr} #392`)).toBe('#a78bfa')
-  expect(colorOf(seen, 'checks running')).toBe('#fbbf24')
-  expect(first('session:TASK-7'), 'Go to session').toBe('#34d399')
-  expect(first('move:TASK-7:review')).toBe('#a78bfa')
-  expect(first('move:TASK-7:done')).toBe('#34d399')
-  await ui.press({ key: 'task:TASK-7' })
-  expect(await ui.find({ key: 'session:TASK-7' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('a move to Done that StarPulse refuses toasts its reason and leaves the Board as read', async ($, on) => {
-  const toasts: string[] = []
-  const ui = await openKanban($, on, {
-    toasts,
-    frame: COLOURED,
-    post: () => answer(0, '{"error": "only the operator moves TASK-7 to Done"}\n409'),
-  })
-
-  await ui.press({ key: 'task:TASK-7' })
-  await ui.press({ key: 'move:TASK-7:done' })
-
-  expect(toasts).toEqual(['only the operator moves TASK-7 to Done'])
-  expect(await ui.find({ key: 'task:TASK-7' })).toBeDefined()
-  await ui.unmount()
-})
 
 // No fill: a `plain` Button draws no chrome and nothing sets a background, so the terminal's own background shows through.
 const fills = async (tree: any, root?: string) => {
@@ -1017,14 +688,6 @@ const fills = async (tree: any, root?: string) => {
     for (const el of await tree.findAll({ type })) if (el.props.backgroundColor !== undefined) filled.push(`${type} ${el.props.backgroundColor}`)
   expect(filled).toEqual(root ? [`Box ${root}`] : [])
 }
-
-test('the Board tab sets no background: every Button is plain and the dock grey shows through', async ($, on) => {
-  const ui = await openKanban($, on, { frame: COLOURED })
-  await ui.press({ key: 'task:TASK-7' })
-
-  await fills(ui)
-  await ui.unmount()
-})
 
 test('the band draws no fill: every Button is plain and no element sets a background', async ($, on) => {
   const stream = feed()
@@ -1067,231 +730,7 @@ test('desktop band: native buttons, a head and body drawing, no icon font, no br
   await ui.unmount()
 })
 
-test('desktop Board tab: a text header and flat lane headers, row Clients on one bordered card per lane, no rules, hints or icon font', async ($, on) => {
-  const ui = await openKanban($, on, {}, 'desktop')
-
-  const seen = (await everyText(ui)).join('|')
-  expect(seen).not.toMatch(NERD_ICON)
-  expect(seen).not.toContain('─')
-  expect(seen).not.toContain('move')
-  expect(seen).not.toContain('pick')
-  expect(seen).toContain('BOARD')
-  expect(seen).toContain('3 tasks · live')
-  expect(seen).toContain('IN PROGRESS')
-  expect(await ui.find({ key: 'rows-in_progress' }).then((r: any) => r?.props.backgroundColor), 'the lane card shows the chat grey').toBeUndefined()
-  expect(await ui.find({ key: 'row-TASK-7' }).then((r: any) => r?.props.borderStyle), 'a row has no box of its own').toBeUndefined()
-  const edge = /^#d4d2c8[0-9a-f]{2}$/
-  const lane = (await ui.find({ key: 'rows-in_progress' })) as any
-  expect(lane?.props.borderColor, 'the lane card has a silver outline').toMatch(edge)
-  const buttons = await everyButton(ui)
-  expect(buttons.map(b => b.key)).toEqual(expect.arrayContaining(['lane:in_progress', 'lane:ready']))
-  expect(buttons.map(b => b.key)).not.toContain('refresh')
-  expect((await ui.find({ key: 'task:TASK-7' }))?.props.module).toMatch(/(^|\/)row\.tsx$/)
-  await ui.unmount()
-})
-
-// Every Text a Client's module drew, in order, with its props.
-const clientTexts = (el: any): any[] =>
-  !el || typeof el !== 'object' ? [] : el.type === 'Text' ? [el] : (el.children ?? []).flatMap(clientTexts)
 const textOf = (t: any) => t.children.join('')
-
-// A Board row as its Client drew it in a region `columns` wide.
-const rowAt = async (ui: any, id: string, columns: number) => {
-  await ui.resize({ columns, rows: 1, in: `task:${id}` })
-  return clientTexts(await ui.drawn({ in: `task:${id}` }))
-}
-
-// Every Box a Client's module drew, in order.
-const clientBoxes = (el: any): any[] =>
-  !el || typeof el !== 'object' ? [] : [...(el.type === 'Box' ? [el] : []), ...(el.children ?? []).flatMap(clientBoxes)]
-const keyOf = (el: any) => el.key ?? el.props?.key
-
-test('desktop Board tab: a row is one line: the ID, a bar of flex segments, the ratio and the PR with its checks, and no title', async ($, on) => {
-  const ui = await openKanban($, on, { frame: FULL }, 'desktop')
-
-  const buttons = await everyButton(ui)
-  expect(buttons.map(b => String(b.props.label))).not.toContain('Details')
-  expect(buttons.map(b => String(b.props.label))).not.toContain('Close')
-  for (const columns of [60, 36]) {
-    const texts = await rowAt(ui, 'TASK-7', columns)
-    const line = texts.map(textOf).join('')
-    expect(line, 'one line').not.toContain('\n')
-    expect(line.startsWith('TASK-7')).toBe(true)
-    expect(line, 'the bar is boxes, not glyphs that wrap in a proportional font').not.toMatch(/━/)
-    expect(line).toContain('#392')
-    expect(line, 'the title is not drawn').not.toContain('Busy one')
-    expect(line, 'no lane pill').not.toContain('In Progress')
-    for (const t of texts) expect(t.props.wrap, `${textOf(t)} never wraps`).toMatch(/^truncate/)
-    const root = clientBoxes(await ui.drawn({ in: 'task:TASK-7' }))[0]
-    expect(root.props.flexWrap ?? 'nowrap').toBe('nowrap')
-  }
-  await ui.unmount()
-})
-
-test('desktop Board tab: a row bar has one segment per criterion, the done ones filled, and is still', async ($, on) => {
-  const ui = await openKanban($, on, {}, 'desktop')
-
-  await ui.resize({ columns: 50, rows: 1, in: 'task:TASK-7' })
-  const first = await ui.drawn({ in: 'task:TASK-7' })
-  const bar = clientBoxes(first).find(b => keyOf(b) === 'bar')
-  expect(bar?.props.flexGrow, 'the bar takes the room the ID and ratio leave').toBe(1)
-  const segs = clientBoxes(bar).filter(b => /^seg-/.test(String(keyOf(b))))
-  expect(segs.length, 'four criteria, four segments').toBe(4)
-  const fills = segs.map(s => s.props.backgroundColor)
-  expect(fills[0]).toBe(fills[1])
-  expect(fills[2]).toBe(fills[3])
-  expect(fills[0], 'two done segments differ from two open ones').not.toBe(fills[2])
-  await ui.advance(2000)
-  expect(await ui.drawn({ in: 'task:TASK-7' }), 'nothing animates').toEqual(first)
-  await ui.unmount()
-})
-
-// The kit's element descriptions carry no `hover`, so the row highlight is checked on a live render, not here.
-test('desktop Board tab: rows are spaced apart', async ($, on) => {
-  const ui = await openKanban($, on, { frame: FULL }, 'desktop')
-
-  expect(((await ui.find({ key: 'row-TASK-7' })) as any)?.props.paddingY, 'a row has room above and below').toBeGreaterThan(0)
-  await ui.unmount()
-})
-
-test('desktop Board tab: a press anywhere on a row opens its card', async ($, on) => {
-  const ui = await openKanban($, on, {}, 'desktop')
-
-  await ui.resize({ columns: 50, rows: 1, in: 'task:TASK-7' })
-  await ui.pointer({ type: 'down', x: 40, y: 0, button: 'left', in: 'task:TASK-7' })
-  await settle()
-  expect(await ui.find({ key: 'back' }), 'the card replaced the lanes').toBeDefined()
-  expect(await ui.find({ key: 'session:TASK-7' })).toBeDefined()
-  await ui.unmount()
-})
-
-test('desktop Board tab: only Done carries the last 24h hint', async ($, on) => {
-  const ui = await openKanban($, on, { frame: FULL }, 'desktop')
-
-  const seen = await everyText(ui)
-  expect(seen).toContain('1 · last 24h')
-  expect(seen.filter((t: string) => t.includes('last 24h'))).toHaveLength(1)
-  await ui.unmount()
-})
-
-test('desktop Board tab: the lane buttons are arrows that fold, and Ready starts folded', async ($, on) => {
-  const ui = await openKanban($, on, {}, 'desktop')
-
-  expect(await ui.find({ key: 'task:TASK-10' }), 'Ready is folded').toBeUndefined()
-  const glyph = async (state: string) => String((await ui.find({ key: `lane:${state}` }))?.props.label)
-  const head = (await ui.find({ key: 'head-ready' }))?.props
-  expect(head, 'a lane head is a flat full-width row, folded or not').toMatchObject({ flexDirection: 'row' })
-  expect(head?.borderStyle, 'a lane head draws no box').toBeUndefined()
-  expect(await glyph('ready')).toBe('›')
-  expect(await glyph('in_progress')).toBe('⌄')
-  await ui.press({ key: 'lane:ready' })
-  expect(await ui.find({ key: 'task:TASK-10' })).toBeDefined()
-  expect(await glyph('ready')).toBe('⌄')
-  await ui.unmount()
-})
-
-test('desktop Board tab: a row opens the card with a primary Start session and a Move button a lane, which post to StarPulse', async ($, on) => {
-  const posted: string[][] = []
-  const ui = await openKanban($, on, { posted, frame: KANBAN_OPEN }, 'desktop')
-
-  await ui.press({ key: 'lane:ready' })
-  await ui.post({ task: 'TASK-10' }, { in: 'task:TASK-10' })
-  expect((await ui.find({ key: 'session:TASK-10' }))?.props.variant).toBe('primary')
-  expect((await ui.find({ key: 'move:TASK-10:in_progress' }))?.props.label).toBe('Move to In Progress')
-  expect((await ui.findAll({ type: 'Svg' })).some((s: any) => s.props.source.includes('Ready one'))).toBe(true)
-  await ui.press({ key: 'move:TASK-10:in_progress' })
-
-  expect(posted.map(sent)).toEqual([{ task: 'TASK-10', to: 'in_progress' }])
-  await ui.unmount()
-})
-
-// The held stream this session's own task arrives on: TASK-7 is also in the KANBAN In Progress lane.
-const HELD = board([['in_progress', 'In Progress', [task({ id: 'TASK-7', title: 'Busy one', pause_reason: '', prs: [{ url: `${PULL}/392`, number: 392, checks: 'pending' }] })]]])
-
-test('desktop Board tab: a THIS SESSION lane leads with this session\'s held task, drawn as any other lane', async ($, on) => {
-  const heldFeed = feed()
-  heldFeed.held(HELD)
-  const ui = await openKanban($, on, { held: [heldFeed] }, 'desktop')
-
-  expect((await everyText(ui)).join('|')).toContain('THIS SESSION')
-  expect(await ui.find({ key: 'head-session' }), 'a lane head like the rest').toBeDefined()
-  expect((await ui.find({ key: 'rows-session' }))?.props.borderStyle, 'a lane card like the rest').toBe('round')
-  expect((await ui.find({ key: 'task:TASK-7' }))?.props.module, 'a row like the rest').toMatch(/(^|\/)row\.tsx$/)
-  expect((await ui.findAll({ type: 'Svg' })).some((s: any) => s.props.alt.startsWith('Current task')), 'no card of its own').toBe(false)
-  expect(await ui.find({ key: 'lane:in_progress' }), 'its board lane is empty now, so hidden').toBeUndefined()
-  expect(await ui.find({ key: 'lane:ready' })).toBeDefined()
-  await ui.unmount()
-})
-
-test('desktop Board tab: with no held task there is no THIS SESSION lane', async ($, on) => {
-  const ui = await openKanban($, on, {}, 'desktop')
-
-  expect(await ui.find({ key: 'head-session' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('desktop Board tab: a busy lane shows its first six rows until Show N more', async ($, on) => {
-  const many = Array.from({ length: 8 }, (_, i) => task({ id: `TASK-2${i}`, title: `Busy ${i}`, assignee: `session-${i}` }))
-  const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', many]]) }, 'desktop')
-
-  const taskKeys = async () => (await ui.findAll({ type: 'Client' })).map((c: any) => String(c.key)).filter(k => k.startsWith('task:'))
-  expect(await taskKeys()).toHaveLength(6)
-  expect((await ui.find({ key: 'more:in_progress' }))?.props.label).toBe('Show 2 more')
-  await ui.press({ key: 'more:in_progress' })
-  expect(await taskKeys()).toHaveLength(8)
-  expect((await ui.find({ key: 'more:in_progress' }))?.props.label).toBe('Show fewer')
-  await ui.unmount()
-})
-
-test('desktop Board tab: a lane lists its most recently active task first, the undated last in board order', async ($, on) => {
-  const pr = (updatedAt: string) => [{ url: `${PULL}/392`, number: 392, checks: 'pending', updatedAt }]
-  const tasks = [
-    task({ id: 'TASK-31', title: 'Undated one', prs: [] }),
-    task({ id: 'TASK-32', title: 'Older one', prs: pr('2026-10-20T08:00:00Z') }),
-    task({ id: 'TASK-33', title: 'Undated two', prs: [] }),
-    task({ id: 'TASK-34', title: 'Newest one', prs: [...pr('2026-10-19T08:00:00Z'), ...pr('2026-10-21T08:00:00Z')] }),
-  ]
-  const ui = await openKanban($, on, { frame: board([['in_progress', 'In Progress', tasks]]) }, 'desktop')
-
-  const taskKeys = (await ui.findAll({ type: 'Client' })).map((c: any) => String(c.key)).filter(k => k.startsWith('task:'))
-  expect(taskKeys).toEqual(['task:TASK-34', 'task:TASK-32', 'task:TASK-31', 'task:TASK-33'])
-  await ui.unmount()
-})
-
-test('a move StarPulse marks allowed: false draws no button; an allowed one does', async ($, on) => {
-  const ui = await openKanban($, on)
-
-  await ui.press({ key: 'task:TASK-7' })
-  expect(await ui.find({ key: 'move:TASK-7:review' })).toBeDefined()
-  expect(await ui.find({ key: 'move:TASK-7:ready' })).toBeUndefined()
-  await ui.unmount()
-})
-
-// The pane as the desktop mounts it before it has measured the dock: no columns yet.
-const unmeasured = ($: any) =>
-  $.ui.mount({ plugin: 'starpulse-board', surface: 'desktop', component: 'Pane', props: { ...PANE_PROPS, placement: 'dock', bodyColumns: undefined }, requestId: 'starpulse-kanban' })
-
-test('Board tab draws its error: an unmeasured dock still draws the Board, every drawing a finite width', async ($, on) => {
-  const stream = feed()
-  const ui0 = await openKanban($, on, { lanes: [stream] }, 'desktop')
-  await ui0.unmount()
-  const ui = await unmeasured($)
-
-  expect((await everyText(ui)).join('|')).toContain('BOARD')
-  const widths = (await ui.findAll({ type: 'Svg' })).map(drawnWidth)
-  expect((await ui.findAll({ type: 'Client' })).length, 'its rows still draw').toBeGreaterThan(0)
-  expect(widths.every((w: number) => Number.isFinite(w) && w > 0 && w <= 4096), String(widths)).toBe(true)
-  await ui.unmount()
-})
-
-test('Board tab draws its error: a task it cannot draw shows why in the tab, not a blank pane', async ($, on) => {
-  const broken = board([['in_progress', 'In Progress', [task({ id: 'TASK-9', criteria: [null] })]]])
-  const ui = await openKanban($, on, { frame: broken }, 'desktop')
-
-  expect((await everyText(ui)).join('|')).toContain('could not draw')
-  await ui.unmount()
-})
-
 test('PR chip opens the pull request: the band PR number is a native link, not a chip in the drawing', async ($, on) => {
   serve(on, BOARD)
 
@@ -1403,7 +842,7 @@ test('desktop band: a task reporting no skill draws no skill row', async ($, on)
 })
 
 // A desktop band over the board `stdout`, whose curl calls `curl` answers; the toasts it shows are collected.
-const takeOverBand = async ($: any, on: On, stdout: string, curl: (argv: readonly string[]) => ReturnType<typeof answer>) => {
+const takeOverBand = async ($: any, on: On, stdout: string, curl: (argv: readonly string[]) => ReturnType<typeof answer>, surface = 'desktop') => {
   const toasts: string[] = []
   const posted: string[][] = []
   serve(on, stdout, {
@@ -1420,7 +859,7 @@ const takeOverBand = async ($: any, on: On, stdout: string, curl: (argv: readonl
   })
   await $.command.run(RUN)
 
-  return { ui: await band($, 'desktop'), toasts, posted }
+  return { ui: await band($, surface), toasts, posted }
 }
 
 const INTERACTIVE = (interactive: boolean) => board([['in_progress', 'In Progress', [task({ id: 'PROJ-1', title: 'Add the verbs', interactive })]]])
@@ -1471,4 +910,35 @@ test('desktop band: an unattended task shows no driving indicator', async ($, on
 
   expect((await ui.findAll({ type: 'Text' })).map(textOf)).not.toContain('driving')
   await ui.unmount()
+})
+
+test('terminal band: an unattended task has a Make interactive button that posts the take-over; an interactive one shows driving', async ($, on) => {
+  const { ui, posted } = await takeOverBand($, on, INTERACTIVE(false), () => answer(0, '{"sent": true}\n200'), 'terminal')
+
+  expect((await ui.find({ key: 'make-interactive' }))?.props.label).toBe('Make interactive')
+  await ui.press({ key: 'make-interactive' })
+  await settle()
+  expect(sent(posted[0]!)).toEqual({ task: 'PROJ-1' })
+  expect(await words(ui)).not.toContain('driving')
+  await ui.unmount()
+})
+
+test('terminal band: once the harness reports the task interactive it shows driving, not the button', async ($, on) => {
+  const { ui } = await takeOverBand($, on, INTERACTIVE(true), () => answer(0, ''), 'terminal')
+
+  expect(await ui.find({ key: 'make-interactive' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Text' })).find((t: any) => textOf(t) === 'driving')?.props.color).toBe('#60a5fa')
+  await ui.unmount()
+})
+
+test('the session start opens no pane and registers /board alone', async ($, on) => {
+  const opened: string[] = []
+  const registered: string[] = []
+  sessionsHost(on, { opened, registered })
+
+  await start($, 'terminal')
+  await start($, 'desktop')
+
+  expect(opened).toEqual([])
+  expect(registered).toEqual(['board', 'board'])
 })
