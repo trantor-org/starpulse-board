@@ -182,6 +182,51 @@ test('terminal band: the head carries the lane icon, ID, title, AC bar and k/n, 
   expect(await ui.find({ key: 'details-PROJ-1' }), 'no Details button: there is no task pane').toBeUndefined()
 })
 
+// The head line's direct children, each with its text and whether it may shrink.
+const headItems = async (ui: any) => {
+  const head = await ui.find({ key: 'head' })
+  return (head?.children ?? []).filter((c: any) => typeof c === 'object' && c).map((c: any) => ({ ...c, key: c.props.key })) as any[]
+}
+
+const cellsOf = (el: any): string => (typeof el === 'string' ? el : el?.props?.label && el.type === 'Link' ? el.props.label : (el?.children ?? []).map(cellsOf).join(''))
+
+for (const columns of [60, 100, 160]) {
+  test(`terminal band: at ${columns} columns the head is one row only the title gives way in`, async ($, on) => {
+    serve(on, heldOne({ title: 'Let any agent session edit a held task without waiting for the board to answer' }))
+
+    await $.command.run(RUN)
+    const ui = await band($, 'terminal', { ...PROPS, bodyColumns: columns })
+    const items = await headItems(ui)
+    const fixed = items.filter(c => c.key !== 'head-title')
+
+    expect(items.find(c => c.key === 'head-title')?.props.flexShrink, 'the title shrinks').toBe(1)
+    for (const c of fixed) {
+      expect(c.props.flexShrink, `${c.key} keeps its width`).toBe(0)
+    }
+    const used = fixed.reduce((n, c) => n + Math.max(cellsOf(c).length, 1), 0) + items.length - 1
+    expect(used, 'the fixed items leave the title room').toBeLessThanOrEqual(columns - 16)
+    const kept = fixed.map(c => c.key)
+    for (const key of ['head-icon', 'head-id', 'head-ratio', 'head-lane', 'checks-PROJ-1', 'head-pr', 'head-fold']) {
+      expect(kept, key).toContain(key)
+    }
+    const text = (key: string) => cellsOf(fixed.find(c => c.key === key))
+    expect([text('head-id'), text('head-ratio'), text('head-lane'), text('head-pr')]).toEqual(['PROJ-1', '2/4', 'In Progress', '#392'])
+    expect(kept.includes('head-bar'), 'the AC bar shows only with room').toBe(columns >= 100)
+    expect(kept.includes('head-take-over'), 'the take-over shows with room').toBe(columns >= 100)
+  })
+}
+
+test('terminal band: the head names the PR in plain text and the facts row carries its link', async ($, on) => {
+  serve(on, BOARD)
+
+  await $.command.run(RUN)
+  const ui = await band($, 'terminal')
+
+  const links = (el: any): any[] => (typeof el !== 'object' || !el ? [] : [...(el.type === 'Link' ? [el] : []), ...(el.children ?? []).flatMap(links)])
+  expect(links(await ui.find({ key: 'head' })), 'a terminal without hyperlinks spells the URL out, so the head holds none').toEqual([])
+  expect(links(await ui.find({ key: 'facts' })).map(l => l.props.label)).toEqual(['#392'])
+})
+
 test('terminal band: the delivery path draws the phases reached and the current substates, the running one ringed', async ($, on) => {
   serve(on, heldOne({ phase: 'deliver', substate: 'committed' }))
 
