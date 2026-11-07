@@ -11,10 +11,15 @@ export type TermBand = {
   t: HeldTask | null
   stats: Stats
   isMini: boolean
+  /** The cells the band draws into; the head line drops its optional items to fit. */
+  columns: number
   g: Glyphs
   onTakeOver: (id: string) => unknown
   onFold: () => unknown
 }
+
+// Cells the head line's title keeps before an optional head item drops.
+const TITLE_MIN = 16
 
 // A node's mark: the DAG orb in cells. One not reached is hollow; the running one is a ringed dot.
 const orb = (st: string) => (st === 'now' ? '◉' : st ? '●' : '○')
@@ -123,11 +128,11 @@ const figures = (ui: Terminal, pairs: [string, string][]) =>
 
 /**
  * The band in cells, the desktop band's facts in the same order: a head line (lane icon, ID, title, AC bar and k/n,
- * lane, Make interactive or driving, the PR's checks and number as a link, and the fold arrow), then the delivery path,
- * the skill machine, the PR's facts with the tests and the session's stats. Folded, the head line alone carries the
- * tests, cost and turns.
+ * lane, Make interactive or driving, the PR's checks and number, and the fold arrow) sized to `columns`, then the
+ * delivery path, the skill machine, the PR's link and facts with the tests, and the session's stats. Folded, the head
+ * line alone carries the tests, cost and turns.
  */
-export const termBand = ({ ui, t, stats, isMini, g, onTakeOver, onFold }: TermBand) => {
+export const termBand = ({ ui, t, stats, isMini, columns, g, onTakeOver, onFold }: TermBand) => {
   const { Box, Button, Link, Text } = ui
   const lines = statLines(stats)
   const tests = t ? testsOf(t) : null
@@ -136,49 +141,86 @@ export const termBand = ({ ui, t, stats, isMini, g, onTakeOver, onFold }: TermBa
   const sub = t && subline(t)
   const checks = t?.pull ? CHECKS[t.pull.checks] : null
   const facts = t ? [...(t.pull ? prFacts(t.pull) : []), ...(tests ? [tests] : [])] : []
+  const mini = miniStats(stats)
+
+  // Every head item but the title keeps its width, so none wraps a cell at a time. Required items always draw; the
+  // optional ones, most wanted first, draw while the title keeps TITLE_MIN cells; one too wide is skipped, so a
+  // narrower one after it may still draw.
+  const item = (key: string, cells: number, el: RenderElement) => ({ key, cells, el })
+  const required = [
+    t && item('head-icon', 2, <Text color={color}>{laneIcon(g, t.lane)}</Text>),
+    t && item('head-id', t.id.length, <Text bold color={SP.ink}>{t.id}</Text>),
+    t?.pull && checks && item(`checks-${t.id}`, 1, <Text color={checks.color}>{g(t.pull.checks)}</Text>),
+    t?.pull && item('head-pr', String(t.pull.number).length + 1, <Text color={SP.muted}>{`#${t.pull.number}`}</Text>),
+    item(
+      'head-fold',
+      1,
+      <Button key="fold" label={isMini ? '▴' : '▾'} plain onPress={() => onFold()}>
+        <Text color={SP.slate}>{isMini ? '▴' : '▾'}</Text>
+      </Button>,
+    ),
+  ]
+  const optional = [
+    t && item('head-lane', laneName.length, <Text color={color}>{laneName}</Text>),
+    isMini && tests && item('head-tests', tests.text.length, <Text color={tests.color}>{tests.text}</Text>),
+    isMini && item('head-stats', mini.reduce((n, [k, v]) => n + (k ? k.length + 1 : 0) + v.length + 1, -1), <Box gap={1}>{figures(ui, mini)}</Box>),
+    !isMini && p && item('head-ratio', ratio(p).length, <Text color={SP.ink}>{ratio(p)}</Text>),
+    t?.interactive && item('head-driving', 7, <Text color={SP.skillText}>driving</Text>),
+    t &&
+      !t.interactive &&
+      item(
+        'head-take-over',
+        18,
+        <Button key="make-interactive" label="Make interactive" plain onPress={() => onTakeOver(t.id)}>
+          <Text color={SP.skillText}>[Make interactive]</Text>
+        </Button>,
+      ),
+    !isMini && p && p.k !== null && item('head-bar', 12, <Box>{barTexts(Text, p.k, p.n, 12, color)}</Box>),
+  ]
+  // Each item drawn costs its cells and the gap beside it; a surface not yet measured lays out at 80.
+  let room = (columns > 0 ? columns : 80) - TITLE_MIN
+  const shown = new Set<string>()
+  for (const it of [...required, ...optional]) {
+    if (it && (required.includes(it) || it.cells + 1 <= room)) {
+      shown.add(it.key)
+      room -= it.cells + 1
+    }
+  }
+  const cell = (it: (typeof required)[number] | (typeof optional)[number]) =>
+    it && shown.has(it.key) ? (
+      <Box key={it.key} flexShrink={0}>
+        {it.el}
+      </Box>
+    ) : null
+  const [icon, id, checksMark, prNumber, fold] = required
+  const [lane, miniTests, miniFigures, ratioCell, driving, takeOver, bar] = optional
 
   const head = (
     <Box key="head" flexDirection="row" gap={1}>
-      {t && <Text color={color}>{laneIcon(g, t.lane)}</Text>}
-      {t && (
-        <Text bold color={SP.ink}>
-          {t.id}
-        </Text>
-      )}
-      <Box flexGrow={1} flexShrink={1}>
+      {cell(icon)}
+      {cell(id)}
+      <Box key="head-title" flexGrow={1} flexShrink={1}>
         <Text wrap="truncate-end" color={sub ? sub.color : SP.slate}>
           {sub ? sub.text : 'No task held'}
         </Text>
       </Box>
-      {!isMini && p && p.k !== null && <Box>{barTexts(Text, p.k, p.n, 12, color)}</Box>}
-      {!isMini && p && <Text color={SP.ink}>{ratio(p)}</Text>}
-      {t && <Text color={color}>{laneName}</Text>}
-      {isMini && tests && <Text color={tests.color}>{tests.text}</Text>}
-      {isMini && figures(ui, miniStats(stats))}
-      {t && !t.interactive && (
-        <Button key="make-interactive" label="Make interactive" plain onPress={() => onTakeOver(t.id)}>
-          <Text color={SP.skillText}>[Make interactive]</Text>
-        </Button>
-      )}
-      {t?.interactive && (
-        <Text key="driving" color={SP.skillText}>
-          driving
-        </Text>
-      )}
-      {t?.pull && checks && (
-        <Box key={`checks-${t.id}`}>
-          <Text color={checks.color}>{g(t.pull.checks)}</Text>
-        </Box>
-      )}
-      {t?.pull && (
-        <Text key="pr" color={SP.muted}>
-          <Link href={`https://github.com/${t.pull.repo}/pull/${t.pull.number}`} label={`#${t.pull.number}`} />
-        </Text>
-      )}
-      <Button key="fold" label={isMini ? '▴' : '▾'} plain onPress={() => onFold()}>
-        <Text color={SP.slate}>{isMini ? '▴' : '▾'}</Text>
-      </Button>
+      {cell(bar)}
+      {cell(ratioCell)}
+      {cell(lane)}
+      {cell(miniTests)}
+      {cell(miniFigures)}
+      {cell(takeOver)}
+      {cell(driving)}
+      {cell(checksMark)}
+      {cell(prNumber)}
+      {cell(fold)}
     </Box>
+  )
+  // A terminal without hyperlinks spells a Link's URL out after its label, so the link rides the facts row, which wraps.
+  const prLink = t?.pull && (
+    <Text key="pr" color={SP.muted}>
+      <Link href={`https://github.com/${t.pull.repo}/pull/${t.pull.number}`} label={`#${t.pull.number}`} />
+    </Text>
   )
 
   return (
@@ -186,9 +228,15 @@ export const termBand = ({ ui, t, stats, isMini, g, onTakeOver, onFold }: TermBa
       {head}
       {!isMini && t && pathRows(ui, t)}
       {!isMini && t && skillRow(ui, t)}
-      {!isMini && facts.length > 0 && (
+      {!isMini && (facts.length > 0 || prLink) && (
         <Box key="facts" flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {facts.flatMap((f, i) => [...(i ? [<Text key={`facts-sep-${i}`} color={SP.faint}>·</Text>] : []), <Text key={`fact-${i}`} color={f.color}>{f.text}</Text>])}
+          {prLink}
+          {facts.flatMap((f, i) => [
+            ...(i || prLink ? [<Text key={`facts-sep-${i}`} color={SP.faint}>·</Text>] : []),
+            <Text key={`fact-${i}`} color={f.color}>
+              {f.text}
+            </Text>,
+          ])}
         </Box>
       )}
       {!isMini && (
