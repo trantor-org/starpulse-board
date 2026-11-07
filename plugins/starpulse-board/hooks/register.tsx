@@ -137,6 +137,7 @@ export const register: Register = (on, options) => {
             t,
             stats: s,
             isMini: mini,
+            columns: e.props.bodyColumns,
             g,
             onTakeOver: id => takeOver($, id),
             onFold: () => update($, isMini, x => !x),

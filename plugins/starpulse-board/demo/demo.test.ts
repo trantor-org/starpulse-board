@@ -142,6 +142,22 @@ test('the demo page draws the band this demo session holds, on Desktop and in th
   expect(terminal.html).toContain('Deliver')
 })
 
+for (const [columns, note] of [
+  [60, 'Narrow: the head drops the AC bar and Make interactive, and only the title truncates.'],
+  [160, 'Wide: every head item draws on one row.'],
+] as const) {
+  test(`the demo page draws the terminal band at ${columns} columns`, async ($, on) => {
+    host(on)
+    await $.session.start({ cwd: '/work', surface: 'desktop', isInteractive: true })
+    await settle()
+
+    const tree = await drawBand($, columns, false, 'terminal')
+    SECTIONS.splice(2, 0, { heading: `Band above the prompt, terminal, ${columns} columns`, columns, note, tree })
+
+    expect(tree.html).toContain('TASK-103')
+  })
+}
+
 test('the demo page prints every band state at 100, 125 and 150 percent', async () => {
   const html = page({ title: 'starpulse-board desktop demo', sections: SECTIONS })
 

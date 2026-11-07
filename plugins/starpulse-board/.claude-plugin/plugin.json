@@ -1,6 +1,6 @@
 {
   "name": "starpulse-board",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Draws the StarPulse band for the Board task this Claude Code session holds above the prompt, in the terminal and in Desktop, and /board to list held tasks.",
   "types": "./types/index.d.ts",
   "author": {
