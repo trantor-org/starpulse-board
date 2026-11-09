@@ -300,11 +300,17 @@ export const miniStats = (s: Stats): [key: string, value: string][] => [
 ]
 
 // The in-progress machine's phases and each one's subflow states, in order (`starpulse machine show in-progress`).
+// A substate is an achievement, so the initial state is no step. qa's states name the lens being run, so each qa step
+// lists the state the board reports once that lens passed; `substateOf` folds a `_dirty` variant into its lens, and
+// `fixing` (before the next round's security) reaches none.
 const PHASES: [id: string, name: string, subs: [id: string, name: string][]][] = [
   ['build', 'Build', [['worktree_ready', 'worktree'], ['red_proven', 'red'], ['green', 'green'], ['criteria_checked', 'criteria'], ['docs_reconciled', 'docs']]],
+  ['qa', 'QA', [['ux', 'security'], ['ui', 'ux'], ['code', 'ui'], ['simplify', 'code'], ['contract', 'simplify'], ['done', 'contract']]],
   ['deliver', 'Deliver', [['lint_green', 'lint'], ['committed', 'commit'], ['pushed', 'push'], ['pr_opened', 'PR'], ['ci_green', 'CI'], ['pr_ready', 'ready']]],
-  ['review_fix', 'Review', [['triage', 'threads'], ['review_recorded', 'recorded']]],
+  ['review_fix', 'Review', [['review_recorded', 'recorded']]],
 ]
+
+const substateOf = (t: HeldTask) => (t.phase === 'qa' ? t.substate.replace(/_dirty$/, '') : t.substate)
 
 /**
  * Where a task stands on the delivery path: the phase it is in (-1 when the board reports none, never a guess), how many
@@ -315,7 +321,7 @@ export const pathOf = (t: HeldTask) => {
   const isFinal = (t.phase === 'review_fix' && t.substate === 'review_recorded') || t.lane === 'review' || t.lane === 'done'
   const found = PHASES.findIndex(([id]) => id === t.phase)
   const phase = found < 0 && isFinal ? PHASES.length - 1 : found
-  const at = (PHASES[phase]?.[2] ?? []).findIndex(([id]) => id === t.substate) + 1
+  const at = (PHASES[phase]?.[2] ?? []).findIndex(([id]) => id === substateOf(t)) + 1
   const flag = t.lane === 'needs_attention' ? 'bad' : t.lane === 'waiting' ? 'hold' : ''
   const why = flag === 'bad' ? t.reason || 'needs attention' : flag === 'hold' ? `parked · until ${t.waitingOn.join(', ') || 'unblocked'}` : ''
 

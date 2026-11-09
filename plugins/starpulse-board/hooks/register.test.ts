@@ -234,15 +234,42 @@ test('terminal band: the delivery path draws the phases reached and the current 
   const ui = await band($, 'terminal')
   const seen = await texts(ui)
 
-  for (const text of ['Build', '5/5', 'Deliver', '2/6', 'lint', 'commit', 'push', 'PR', 'CI', 'ready']) {
+  for (const text of ['Build', '5/5', 'QA', '6/6', 'Deliver', '2/6', 'lint', 'commit', 'push', 'PR', 'CI', 'ready']) {
     expect(has(seen, text), text).toBe(true)
   }
   expect(has(seen, 'Review'), 'a phase not reached is not drawn').toBe(false)
   const marks = seen.filter(t => ['●', '◉', '○'].includes(t.text))
-  expect(marks.map(t => t.text)).toEqual(['●', '◉', '●', '●', '◉', '○', '○', '○'])
-  expect(marks[1]?.color, 'the running phase in the run colour').toBe('#fbbf24')
+  expect(marks.map(t => t.text)).toEqual(['●', '●', '◉', '●', '●', '◉', '○', '○', '○'])
+  expect(marks[2]?.color, 'the running phase in the run colour').toBe('#fbbf24')
   expect(marks[0]?.color, 'a finished phase in the done colour').toBe('#34d399')
 })
+
+test('terminal band: a qa task draws Build and QA with its lens steps, the lens under review running', async ($, on) => {
+  serve(on, heldOne({ phase: 'qa', substate: 'ui_dirty' }))
+
+  await $.command.run(RUN)
+  const seen = await texts(await band($, 'terminal'))
+
+  expect(has(seen, 'Delivery phase not reported by the board')).toBe(false)
+  for (const text of ['Build', '5/5', 'QA', '2/6', 'security', 'ux', 'ui', 'code', 'simplify', 'contract']) {
+    expect(has(seen, text), text).toBe(true)
+  }
+  expect(has(seen, 'Deliver'), 'a phase not reached is not drawn').toBe(false)
+  expect(seen.filter(t => ['●', '◉', '○'].includes(t.text)).map(t => t.text)).toEqual(['●', '◉', '●', '●', '◉', '○', '○', '○'])
+})
+
+for (const [substate, marks] of [['start', ['●', '●', '●', '◉', '◉']], ['review_recorded', ['●', '●', '●', '●', '●']]] as const) {
+  test(`terminal band: a review_fix task at ${substate} lights its live step`, async ($, on) => {
+    serve(on, heldOne({ phase: 'review_fix', substate }))
+
+    await $.command.run(RUN)
+    const seen = await texts(await band($, 'terminal'))
+
+    expect(has(seen, 'Review')).toBe(true)
+    expect(has(seen, 'recorded')).toBe(true)
+    expect(seen.filter(t => ['●', '◉', '○'].includes(t.text)).map(t => t.text)).toEqual(marks)
+  })
+}
 
 test('terminal band: a task the board reports no phase for says so rather than guessing one', async ($, on) => {
   serve(on, BOARD)
