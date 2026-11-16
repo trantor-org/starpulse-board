@@ -1,5 +1,6 @@
 import type { On, RenderElement } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
+import { follow, newRun } from './starpulse'
 
 const PULL = 'https://github.com/trantor-org/starpulse/pull'
 const CRITERIA = [true, true, false, false].map((checked, i) => ({ text: `Criterion ${i + 1}`, checked }))
@@ -913,16 +914,22 @@ test('desktop band: a task reporting no skill draws no skill row', async ($, on)
   expect(body?.source).not.toContain('data-row="skill"')
 })
 
+// Answers each curl the plugin spawns with `curl`'s stdout.
+const curlSpawn = (on: any, curl: (e: { argv: readonly string[]; input?: string }) => ReturnType<typeof answer>) =>
+  on('process.spawn', async function* (_$: any, e: any) {
+    const { stdout } = curl(e).value
+    if (stdout) yield { stream: 'stdout' as const, text: stdout }
+    return { value: { code: 0, signal: null } }
+  })
+
 // A desktop band over the board `stdout`, whose curl calls `curl` answers; the toasts it shows are collected.
 const takeOverBand = async ($: any, on: On, stdout: string, curl: (argv: readonly string[]) => ReturnType<typeof answer>, surface = 'desktop') => {
   const toasts: string[] = []
   const posted: string[][] = []
-  serve(on, stdout, {
-    run: e => {
-      if (e.argv[0] !== 'curl') return answer(0, stdout)
-      posted.push([...e.argv])
-      return curl(e.argv)
-    },
+  serve(on, stdout)
+  curlSpawn(on, (e: any) => {
+    posted.push([...e.argv])
+    return curl(e.argv)
   })
   on('env.get', () => ({ value: undefined }))
   on('ui.toast', ($: any, e: any) => {
@@ -959,7 +966,7 @@ test('desktop band: a take-over StarPulse refuses toasts its reason', async ($, 
 })
 
 test('desktop band: a take-over that cannot reach StarPulse toasts that', async ($, on) => {
-  const { ui, toasts } = await takeOverBand($, on, INTERACTIVE(false), () => answer(7, ''))
+  const { ui, toasts } = await takeOverBand($, on, INTERACTIVE(false), () => answer(7, '\n000'))
 
   await ui.press({ key: 'make-interactive' })
   await settle()
@@ -1013,4 +1020,71 @@ test('the session start opens no pane and registers /board alone', async ($, on)
 
   expect(opened).toEqual([])
   expect(registered).toEqual(['board', 'board'])
+})
+
+test('a write carries the bearer token the stream does, on stdin and not in argv', async ($, on) => {
+  const calls: { argv: readonly string[]; input?: string }[] = []
+  serve(on, INTERACTIVE(false))
+  curlSpawn(on, e => {
+    calls.push(e)
+    return answer(0, '{"sent": true}\n200')
+  })
+  on('env.get', ($: any, e: any) => ({ value: e.name === 'STARPULSE_TOKEN' ? 'tok-1' : undefined }))
+  await $.command.run(RUN)
+  const ui = await band($, 'desktop')
+
+  await ui.press({ key: 'make-interactive' })
+  await settle()
+
+  expect(calls).toHaveLength(1)
+  expect(calls[0]!.argv).toContain('@-')
+  expect(calls[0]!.argv.join(' ')).not.toContain('tok-1')
+  expect(calls[0]!.input).toBe('Authorization: Bearer tok-1\n')
+})
+
+test('a followed child is not started again once the run is stopped during the retry wait', async () => {
+  const waits: (() => unknown)[] = []
+  let spawned = 0
+  const engine = {
+    process: {
+      spawn: () => {
+        spawned++
+        return (async function* () {})()
+      },
+    },
+    clock: { after: (_ms: number, fn: () => unknown) => void waits.push(fn) },
+  }
+  const run = newRun()
+
+  await follow(engine as any, ['curl'], undefined, () => {}, run)
+  run.isStopped = true
+  await waits[0]!()
+
+  expect(spawned).toBe(1)
+})
+
+test('the first step of a turn that reports no tokens starts the turn cost from zero', async ($, on) => {
+  serve(on, BOARD)
+  let usage = { model: 'm', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [], cost: { usd: 0.25 } } }))
+  on('turn.step', async function* (_$: any, e: any) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage }
+  })
+  const step = async (turnId: string, index: number) => {
+    const s = $.turn.step({ turnId, index, model: 'm', messageCount: 1 } as any)
+    for await (const _ of s) {
+    }
+    await s.result
+    await settle()
+  }
+  await $.command.run(RUN)
+  const ui = await band($, 'desktop')
+  await step('t-1', 0)
+  expect(await ui.find({ type: 'Text', text: '$0.25' })).toBeDefined()
+
+  usage = { ...usage, input_tokens: 0, output_tokens: 0 }
+  await step('t-2', 0)
+
+  const last = await ui.find({ key: 'stat-last turn' })
+  expect(JSON.stringify(last)).toContain('$0.00')
 })
