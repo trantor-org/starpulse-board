@@ -88,7 +88,7 @@ export const register: Register = (on, options) => {
     const input = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0
     const output = u?.output_tokens ?? 0
     // A step that moved nothing writes nothing, so the band's readers don't redraw for it.
-    if (!input && !output && (usd === undefined || usd === (await read($, stats)).cost)) {
+    if (e.index !== 0 && !input && !output && (usd === undefined || usd === (await read($, stats)).cost)) {
       return result
     }
     await update($, stats, (s): Stats => {

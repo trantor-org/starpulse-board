@@ -62,8 +62,12 @@ const host = (on: On, feed: Feed = {}) => {
     feed.toasts?.push(e.text)
     return { value: undefined }
   })
-  on('process.run', (_$, e) => answer(e.argv[0] === 'curl' ? (feed.takeOver ?? '{}\n200') : held))
+  on('process.run', () => answer(held))
   on('process.spawn', async function* ($, e, next) {
+    if (e.argv.includes('--data')) {
+      yield { stream: 'stdout' as const, text: feed.takeOver ?? '{}\n200' }
+      return { value: { code: 0, signal: null } }
+    }
     return yield* stream('held', held, next.signal)
   })
 }

@@ -85,6 +85,9 @@ export const newRun = (): Run => ({ isStopped: false, child: null })
 
 // Runs `argv` for as long as it lives, handing `line` each line it prints, and starts it again once it ends, unless `run` was stopped.
 export async function follow($: Engine, argv: string[], input: string | undefined, line: (text: string) => unknown, run = newRun(), tries = 0) {
+  if (run.isStopped) {
+    return
+  }
   let rest = ''
   let hasPrinted = false
   try {
@@ -129,26 +132,40 @@ export const events = (frame: (event: string, data: string) => unknown) => {
   }
 }
 
+// The server URL and, when STARPULSE_TOKEN is set, the curl header flags and the stdin that carries it.
+async function connection($: Engine) {
+  const token = await $.env.get('STARPULSE_TOKEN')
+  const server = ((await $.env.get('STARPULSE_URL')) || 'http://localhost:8766').replace(/\/+$/, '')
+
+  // The token goes in on stdin: every process on the host can read a child's argv.
+  return { server, auth: token ? ['-H', '@-'] : [], input: token ? `Authorization: Bearer ${token}\n` : undefined }
+}
+
 // The argv and stdin of curl following one of the server's event streams.
 export async function streamOf($: Engine, path: string) {
-  const token = await $.env.get('STARPULSE_TOKEN')
-  const server = ((await $.env.get('STARPULSE_URL')) || 'http://localhost:8766').replace(/\/$/, '')
-  // The token goes in on stdin: every process on the host can read a child's argv.
-  const auth = token ? ['-H', '@-'] : []
+  const { server, auth, input } = await connection($)
 
-  return { argv: ['curl', '-sfN', ...auth, `${server}${path}`], input: token ? `Authorization: Bearer ${token}\n` : undefined }
+  return { argv: ['curl', '-sfN', ...auth, `${server}${path}`], input }
 }
 
 // A write to the StarPulse server `starpulse board` reads: null when it took, else the reason it was refused.
 export async function post($: Engine, path: string, body: object): Promise<string | null> {
-  const server = ((await $.env.get('STARPULSE_URL')) || 'http://localhost:8766').replace(/\/+$/, '')
-  const argv = ['curl', '-sS', '-X', 'POST', '-H', 'Content-Type: application/json', '--data', JSON.stringify(body)]
-  const ran = await $.process.run([...argv, '-w', '\n%{http_code}', `${server}${path}`]).catch(() => null)
-  if (ran?.exitCode !== 0) {
+  const { server, auth, input } = await connection($)
+  const argv = ['curl', '-sS', '-X', 'POST', ...auth, '-H', 'Content-Type: application/json', '--data', JSON.stringify(body), '-w', '\n%{http_code}', `${server}${path}`]
+  let out = ''
+  try {
+    for await (const chunk of $.process.spawn({ argv, input })) {
+      out += chunk.stream === 'stdout' ? chunk.text : ''
+    }
+  } catch {
+    // A curl that cannot start reads as one that cannot connect.
+  }
+  const lines = out.trimEnd().split('\n')
+  const code = lines.pop()
+  // curl prints 000 when it never connected.
+  if (!code || code === '000') {
     return `Cannot reach StarPulse at ${server}`
   }
-  const lines = ran.stdout.trimEnd().split('\n')
-  const code = lines.pop()
   if (code === '200') {
     return null
   }
