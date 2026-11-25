@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface as Engine, Register } from 'claude-code'
 import type { HeldTask, Stats } from '../types'
 import { BAND_HEIGHT, NO_STATS, SP, alt, bandBodySvg, bandHeadSvg, glyphs, miniStats, miniSvg, statLines } from './draw'
-import { events, follow, heldOf, post, readBoard, streamOf } from './starpulse'
-import type { Board } from './starpulse'
+import { CHANGES_QUERY, HELD_QUERY, ask, events, follow, graphql, heldOf, heldTaskOf, post, readBoard } from './starpulse'
+import type { GqlTask } from './starpulse'
 import { termBand } from './terminal'
 
 const tasks = atom({ plugin: 'starpulse-board', key: 'tasks' } as const, null)
@@ -18,17 +18,32 @@ const held = async ($: Engine): Promise<HeldTask[] | null> => {
   return board && heldOf(board)
 }
 
-// The server sends this session's held tasks once and again whenever they change; nothing here asks it twice.
+// Reads the open tasks this session holds, then follows the server's `taskChanges` from the position it read them at. A
+// stream that ends is read again from the top, so a position the server no longer holds draws the held tasks afresh.
 const followHeld = async ($: Engine) => {
   const session = await $.session.id()
-  const { argv, input } = await streamOf($, `/api/held?assignee=${encodeURIComponent(session)}`)
+  let claimed: GqlTask[] = []
+  const draw = () => update($, tasks, () => claimed.map(heldTaskOf))
+  const launch = async () => {
+    const { tasks: list } = await ask<{ tasks: { position: number; items: GqlTask[] } }>($, HELD_QUERY)
+    claimed = list.items.filter(t => t.assignee === session)
+    await draw()
+
+    return graphql($, CHANGES_QUERY, { from: list.position })
+  }
   const onFrame = async (event: string, data: string) => {
-    if (event === 'held') {
-      await update($, tasks, () => heldOf(JSON.parse(data) as Board))
+    const change = event === 'next' ? (JSON.parse(data) as { data?: { taskChanges?: { id: string; machine: string; task: GqlTask | null } } }).data?.taskChanges : undefined
+    if (change?.machine !== 'board') {
+      return
     }
+    const rest = claimed.filter(t => t.id !== change.id)
+    const found = change.task?.assignee === session ? change.task : undefined
+    // A task the session still holds keeps its place; one it just claimed comes last.
+    claimed = found ? (rest.length === claimed.length ? [...rest, found] : claimed.map(t => (t.id === change.id ? found : t))) : rest
+    await draw()
   }
 
-  await follow($, argv, input, events(onFrame))
+  await follow($, launch, events(onFrame))
 }
 
 // Hands the task's session to the operator; StarPulse refuses one with no running workflow, and the refusal toasts.
