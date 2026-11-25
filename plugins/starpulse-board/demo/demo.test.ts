@@ -39,9 +39,28 @@ const HELD = boardJson([['in_progress', 'In Progress', [HELD_TASK]]])
 
 const answer = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
 
-// The engine kills a streaming child when `signal` aborts; the fake sends one frame and then waits for that.
-const stream = async function* (event: string, board: string, signal?: AbortSignal) {
-  yield { stream: 'stdout' as const, text: `event: ${event}\ndata: ${board}\n\n` }
+// A task as the server's `tasks` query serves it.
+const served = (lane: string, t: any) => ({
+  id: t.id,
+  title: t.title,
+  lane,
+  assignee: t.assignee ?? null,
+  dependencies: t.waiting_on ?? [],
+  criteria: t.criteria ?? [],
+  pauseReason: t.pause_reason ?? '',
+  phase: t.phase ?? null,
+  substate: t.substate ?? null,
+  skill: t.skill ?? null,
+  interactive: t.interactive ?? false,
+  prs: (t.prs ?? []).map((p: any) => {
+    const [, repo, number] = p.url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
+    return { repo, number: p.number ?? Number(number), state: p.merged ? 'MERGED' : 'OPEN', checks: p.checks ?? 'none', threads: p.threads ?? 0, updatedAt: null }
+  }),
+})
+const listed = (board: string) => JSON.stringify({ data: { tasks: { position: 1, items: JSON.parse(board).columns.flatMap((c: any) => c.tasks.map((t: any) => served(c.state, t))) } } })
+
+// The engine kills a streaming child when `signal` aborts; the fake sends no change and waits for that.
+const stream = async function* (signal?: AbortSignal) {
   await new Promise<void>(resolve => signal?.addEventListener('abort', () => resolve()))
   return { value: { code: 0, signal: null } }
 }
@@ -64,11 +83,15 @@ const host = (on: On, feed: Feed = {}) => {
   })
   on('process.run', () => answer(held))
   on('process.spawn', async function* ($, e, next) {
-    if (e.argv.includes('--data')) {
+    if (e.argv.at(-1)?.endsWith('/api/take-over')) {
       yield { stream: 'stdout' as const, text: feed.takeOver ?? '{}\n200' }
       return { value: { code: 0, signal: null } }
     }
-    return yield* stream('held', held, next.signal)
+    if (!e.argv.at(-2)?.includes('subscription')) {
+      yield { stream: 'stdout' as const, text: listed(held) }
+      return { value: { code: 0, signal: null } }
+    }
+    return yield* stream(next.signal)
   })
 }
 

@@ -539,6 +539,27 @@ test('desktop band: the head animates only under no-preference motion, and only 
   expect(still).not.toContain('class="live"')
 })
 
+// A task as the server's `tasks` query and `taskChanges` subscription serve it, from one `task` above.
+const served = (lane: string, t: any) => ({
+  id: t.id,
+  title: t.title,
+  lane,
+  assignee: t.assignee ?? null,
+  dependencies: t.waiting_on ?? [],
+  criteria: t.criteria ?? [],
+  pauseReason: t.pause_reason ?? '',
+  phase: t.phase ?? null,
+  substate: t.substate ?? null,
+  skill: t.skill ?? null,
+  interactive: t.interactive ?? false,
+  prs: (t.prs ?? []).map((pr: any) => {
+    const [, repo, number] = pr.url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
+    return { repo, number: pr.number ?? Number(number), state: pr.merged ? 'MERGED' : 'OPEN', checks: pr.checks ?? 'none', threads: pr.threads ?? 0, updatedAt: null }
+  }),
+})
+const servedAll = (board: string) => JSON.parse(board).columns.flatMap((c: any) => c.tasks.map((t: any) => served(c.state, t)))
+const change = (task: unknown, id: string, machine = 'board') => `event: next\ndata: ${JSON.stringify({ data: { taskChanges: { id, machine, task } } })}\n\n`
+
 // A child's output the test writes as it goes; end() exits the child, as a server restart ends curl.
 const feed = () => {
   const queue: (string | null)[] = []
@@ -551,8 +572,9 @@ const feed = () => {
   return {
     state,
     write: (text: string) => push(text),
-    // One frame of the held-task stream, carrying `board` as the server sends it.
-    held: (board: string) => push(`event: held\ndata: ${board}\n\n`),
+    // The `taskChanges` frames of each task of `board`, as the server sends them.
+    held: (board: string) => servedAll(board).forEach((t: any) => push(change(t, t.id))),
+    change: (task: unknown, id: string, machine?: string) => push(change(task, id, machine)),
     end: () => push(null),
     // The engine kills the child when the loop is left or `signal` aborts; the fake notes it and ends the stream.
     async *chunks(signal?: AbortSignal) {
@@ -579,6 +601,8 @@ type Host = {
   spawned?: string[][]
   everys?: number[]
   held?: Feed[]
+  listed?: unknown[][]
+  position?: number
   afters?: number[]
   hasClock?: boolean
   noFrame?: boolean
@@ -642,6 +666,10 @@ const sessionsHost = (on: On, host: Host = {}) => {
   }
   on('process.spawn', async function* ($, e, next) {
     host.spawned?.push([...e.argv])
+    if (!e.argv.at(-2)?.includes('subscription')) {
+      yield { stream: 'stdout' as const, text: JSON.stringify({ data: { tasks: { position: host.position ?? 7, items: host.listed?.shift() ?? [] } } }) }
+      return { value: { code: 0, signal: null } }
+    }
     const child = host.held?.shift() ?? feed()
     return yield* child.chunks(next.signal)
   })
@@ -672,8 +700,54 @@ for (const surface of ['terminal', 'desktop'] as const) {
     } else {
       expect((await drawn(ui))?.alt).toContain('PROJ-1')
     }
-    expect(spawned.find(argv => argv[0] === 'curl')?.at(-1)).toBe('http://localhost:8766/api/held?assignee=session-1')
+    const [read, follow] = spawned.filter(argv => argv[0] === 'curl')
+    expect(read?.at(-1)).toBe('http://localhost:8766/graphql')
+    expect(sent(read!).query).toContain('tasks')
+    expect(follow?.at(-1)).toBe('http://localhost:8766/graphql')
+    expect(sent(follow!)).toMatchObject({ variables: { from: 7 } })
+    expect(sent(follow!).query).toContain('taskChanges')
     expect(ran.filter(argv => argv.join(' ').includes('--assignee'))).toEqual([])
+  })
+
+  test(`the band draws a task the session holds at the read and follows each change after it (${surface})`, async ($, on) => {
+    const stream = feed()
+    const [mine, other] = [served('in_progress', task({ id: 'PROJ-1', title: 'Already held' })), served('ready', task({ id: 'PROJ-5', title: 'Not ours', assignee: 'session-2' }))]
+    sessionsHost(on, { held: [stream], listed: [[mine, other]] })
+
+    const ui = await band($, surface)
+    await start($, surface)
+    const seen = async () => (surface === 'terminal' ? (await texts(ui)).map(t => t.text).join(' ') : ((await drawn(ui))?.alt ?? ''))
+    expect(await seen()).toContain('PROJ-1')
+    expect(await seen()).not.toContain('PROJ-5')
+
+    stream.change(served('ready', task({ id: 'PROJ-1', title: 'Already held', assignee: null })), 'PROJ-1')
+    stream.change(served('ready', task({ id: 'PROJ-6', title: 'Someone else', assignee: 'session-2' })), 'PROJ-6')
+    stream.change(null, 'PROJ-9', 'other')
+    await settle()
+    expect(await seen()).not.toContain('PROJ-1')
+    expect(await seen()).not.toContain('PROJ-6')
+
+    stream.change(served('in_progress', task({ id: 'PROJ-3', title: 'Just claimed' })), 'PROJ-3')
+    await settle()
+    expect(await seen()).toContain('PROJ-3')
+
+    stream.change(null, 'PROJ-3')
+    await settle()
+    expect(await seen()).not.toContain('PROJ-3')
+  })
+
+  test(`a task's PR rides the change that carries it (${surface})`, async ($, on) => {
+    const stream = feed()
+    sessionsHost(on, { held: [stream] })
+
+    const ui = await band($, surface)
+    await start($, surface)
+    stream.change(served('review', task({ id: 'PROJ-2', title: 'Rotate the secret', prs: [{ url: `${PULL}/388`, number: 388, checks: 'pass' }] })), 'PROJ-2')
+    await settle()
+
+    const source = surface === 'terminal' ? (await texts(ui)).map(t => t.text).join(' ') : ((await drawn(ui))?.alt ?? '')
+    expect(source).toContain('PROJ-2')
+    expect(source).toContain('388')
   })
 
   test(`a tool call and a turn's end read no board (${surface})`, async ($, on) => {
@@ -1056,7 +1130,7 @@ test('a followed child is not started again once the run is stopped during the r
   }
   const run = newRun()
 
-  await follow(engine as any, ['curl'], undefined, () => {}, run)
+  await follow(engine as any, async () => ({ argv: ['curl'] }), () => {}, run)
   run.isStopped = true
   await waits[0]!()
 
